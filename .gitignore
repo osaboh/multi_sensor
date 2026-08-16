@@ -1,0 +1,4 @@
+/advertisement.hex
+*.elf
+tools/venv/
+__pycache__/
