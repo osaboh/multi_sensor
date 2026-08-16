@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>デバッグログ: BMX055初期化クラッシュ調査</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5a5a5a;
+    --border: #d8d8d8;
+    --code-bg: #f2f2f2;
+    --table-head-bg: #eef1f5;
+    --accent: #2563eb;
+    --status-bg: #fff7e6;
+    --status-border: #e6b800;
+    --warn-bg: #fdecec;
+    --warn-border: #d64545;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --fg: #e6e6e6;
+      --muted: #9a9a9a;
+      --border: #3a3d42;
+      --code-bg: #24272c;
+      --table-head-bg: #1f2329;
+      --accent: #6ea8fe;
+      --status-bg: #2a2410;
+      --status-border: #8a7000;
+      --warn-bg: #2a1616;
+      --warn-border: #b34a4a;
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    line-height: 1.65;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 1.6rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.75rem; color: var(--accent); }
+  code {
+    background: var(--code-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+  }
+  pre {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 0.9em 1.1em;
+    overflow-x: auto;
+    font-size: 0.88rem;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: 1em;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.92rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 0.5em 0.7em;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--table-head-bg); }
+  .status {
+    background: var(--status-bg);
+    border-left: 4px solid var(--status-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .warn {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--warn-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+</style>
+</head>
+<body>
+
+<h1>デバッグログ: BMX055初期化でのクラッシュ調査 (2026-08-16)</h1>
+
+<h2>症状</h2>
+<p>GATTプロファイル実装（<code>docs/ble-protocol-reference.md</code>）を全サービス実装後、<code>make flash</code>で書き込むとBLEアドバタイズが確認できなくなった（<code>make scan</code>で"Go MultiSenser"が見つからない）。</p>
+
+<h2>切り分け手順</h2>
+<ol>
+<li><strong>各Serviceを1つずつ無効化して<code>make scan</code>で確認</strong>（advertising自体は<code>adv.Start()</code>後に登録される各サービスと無関係に飛び続けるはずだが、実際には後続処理のクラッシュが影響していた）
+  <ul>
+    <li>NUS / I/O / LPS22HB / HDC2010 のみ有効 → advertising OK</li>
+    <li>BMX055を有効化 → advertising NG</li>
+    <li>→ <strong>BMX055関連のコードが原因と特定</strong></li>
+  </ul>
+</li>
+<li><strong>advertising継続は「クラッシュしていない証拠にはならない」ことに気づく</strong><br>
+<code>adv.Start()</code>は<code>startBMX055Service()</code>より前に呼ばれるため、後続処理がpanicしても以前のadvertising設定が生きたまま飛び続ける可能性がある（実際には後述の通りpanicで完全に停止することが判明）。この前提が誤りだったため、advertisingの有無だけでは正確な切り分けができなかった。</li>
+<li><strong>J-Linkでレジスタを読み、PCをシンボルに解決して実際にクラッシュしているか確認</strong>
+<pre><code>nrfjprog --readregs          # PCを取得
+tinygo build -o=debug.elf .  # デバッグ情報付きELFをビルド
+arm-none-eabi-addr2line -e debug.elf -f -C &lt;PC&gt;</code></pre>
+→ <code>runtime.panicOrGoexit</code> に一致。<strong>panicしていることを確定。</strong></li>
+<li><strong>コンソール出力が無い問題への対処: J-Link RTTで直接メモリを読む</strong>
+<p>このボードにはUSBシリアルが実装として繋がっていない（<code>xiao-ble</code>ターゲットは本来Seeed XIAO board向けで、このISP1807ボードとはUSB配線が異なる）。<code>println</code>の出力先が無い状態だった。</p>
+<ul>
+<li><code>tinygo build -serial=rtt</code> でRTT出力を有効化してビルド</li>
+<li><code>JLinkRTTLogger</code>はRTT制御ブロックの自動検出に<strong>毎回失敗</strong>した（原因不明、ツール側の問題の可能性）</li>
+<li>代替策: <strong>ELFのシンボルテーブルからRTTバッファの実アドレスを直接特定し、<code>nrfjprog --memrd</code>で生読みする</strong>
+<pre><code>arm-none-eabi-nm debug.elf | grep rttBufferUpData
+# =&gt; 20007800 b machine.rttBufferUpData
+nrfjprog --memrd 0x20007800 --n 512</code></pre>
+この方法はRTT制御ブロックの自動検出に依存せず確実に動作した。今後も同じ手法が使える。</li>
+</ul>
+</li>
+<li><strong><code>must()</code>にNUS TX経由のログ出力を追加</strong>（<code>logLine()</code>呼び出しを追加、恒久的な改善として残した）。ただしBLE接続がまだ確立できない段階のデバッグでは上記のmemrd手法の方が有効だった。</li>
+<li><strong><code>wakeBMX055()</code>の各レジスタ書き込み前にログを出すよう一時的に変更</strong>し、RTTバッファを読んで進行状況を可視化 → <strong><code>mag pwrcntl1 on</code>（磁力センサーのPWR_CNTL1に<code>0x01</code>を書く処理）でI2C NACKにより停止</strong>していることが判明。</li>
+</ol>
+
+<h2>根本原因</h2>
+<p><code>wakeBMX055()</code>の磁力センサー起動シーケンスで、以下の2段階書き込みを行っていた（<a href="https://github.com/kriswiner/BMX-055">kriswiner/BMX-055</a>のリファレンス実装を参考にした際の記述）:</p>
+<pre><code>PWR_CNTL1 (0x4B) = 0x82   // ソフトリセットトリガ (bit7|bit1)
+delay(100ms)
+PWR_CNTL1 (0x4B) = 0x01   // Power Control bit ON</code></pre>
+<p>1段目（<code>0x82</code>）は成功するが、2段目（<code>0x01</code>）が待機時間を100ms→リトライ5回×20ms(計200ms超)に延ばしても一貫してNACKした。リトライで解決しないことから、単なるタイミング不足ではなく、<strong>このボード上のBMX055ではこの2段階シーケンス自体が不要/不適切</strong>と判断した。</p>
+
+<h2>対処</h2>
+<p>ソフトリセットの段（<code>0x82</code>書き込み）を削除し、電源投入直後の状態から直接 <code>PWR_CNTL1 = 0x01</code> のみを書く1段階シーケンスに変更したところ、即座に解消した。<code>sensor_bmx055.go</code>の<code>wakeBMX055()</code>を参照。</p>
+<p class="note"><strong>教訓</strong>: WebFetchでの外部リファレンス実装の参照は、ツールによる要約を経由するため実際のソースコードの値と食い違うリスクがある。今回のように実機で検証できる場合は、疑わしい箇所は実機でのビット単位の検証（今回のようなI2C NACKの有無）を優先すべき。</p>
+
+<h2>副産物として整備したデバッグ手法（今後も再利用可能）</h2>
+<ul>
+<li><strong>RTTバッファの直接memrd手法</strong>（上記4番）。<code>tools/</code>配下にスクリプト化は未実施、必要になったら追加する</li>
+<li><strong><code>i2cscan_debug.go</code></strong>: I2Cバス上の全アドレス(0x03-0x77)をスキャンしてACKするものを列挙する一時デバッグコード。今回は全センサーのアドレス(0x10, 0x18, 0x40, 0x5C, 0x68)がすべて正常応答していることの確認に使った。現在<code>main.go</code>から<code>scanI2C()</code>呼び出しをコメントアウト/削除するか検討中（一時debug用のため本来は削除予定）</li>
+<li><strong>PCからシンボル解決</strong>: <code>arm-none-eabi-addr2line -e &lt;elf&gt; -f -C &lt;PC&gt;</code> でクラッシュ位置を関数名まで特定できる</li>
+</ul>
+
+<h2>未対応・要フォローアップ</h2>
+<ul>
+<li><code>i2cscan_debug.go</code> と <code>main.go</code> 内の <code>scanI2C()</code> 呼び出し、<code>sensor_bmx055.go</code>内の<code>wakeBMX055()</code>のステップ毎<code>logLine</code>呼び出しは調査用の暫定コード。整理して削除する必要がある</li>
+<li><code>-serial=rtt</code>でビルドしたデバッグ用hexと、本来のMakefile経由でビルドされるhexが今は混在している。最終的に通常の<code>make build</code>（RTT無効）に戻して再検証が必要</li>
+</ul>
+
+<hr>
+
+<h2>追加で発見した第2の問題: <code>heap alloc in interrupt</code> panic（未解決・要修正）</h2>
+<p>BMX055の<code>wakeBMX055()</code>修正後、advertisingは正常化し、macOSの<code>bleak</code>から実際にGATT接続を試みたところ、接続直後に<strong>新しいpanicが発生し、advertisingごと完全に停止</strong>した。</p>
+
+<h3>症状</h3>
+<p><code>gatt_check.py</code>（<code>a0b40121</code>等のcharacteristicをRead）で接続を試みると、Python側は<code>TimeoutError</code>で失敗する。直後にRTTバッファ（<code>nrfjprog --memrd 0x20007800 --n 1024</code>）を読むと:</p>
+<pre><code>panic: runtime error at 0x0002d433: heap alloc in interrupt</code></pre>
+<p><code>arm-none-eabi-addr2line -e debug.elf -f -C 0x0002d433</code> → <code>main.startBMX055Service$1</code>（<code>startBMX055Service()</code>内の<code>go func(){ for { ... } }()</code>匿名関数、1秒毎にセンサー値をcharacteristicへWriteしているgoroutine）。</p>
+<p>このpanicの後は完全に停止し、<code>make scan</code>でも<code>NOT FOUND</code>（wakeBMX055のpanicと同様、advertisingごと止まる。「advertisingが継続していればpanicしていない証拠」という前提はこの調査全体を通じて誤りだったことが再確認された）。</p>
+
+<h3>現時点でわかっていること</h3>
+<ul>
+<li>LPS22HB/HDC2010/スイッチのcharacteristic.Write()は同種の処理をしているが、<strong>接続なし(advertisingのみ)の状態では一度もこのpanicが発生していない</strong></li>
+<li>BMX055を組み込んで初めて、かつ<strong>実際にBLE接続が発生した直後</strong>にのみ再現した</li>
+<li>→ SoftDevice側でBLE接続イベント/notify処理が実際の割り込みハンドラ内でGoコードを呼び出しており、その経路でヒープ確保（スライスリテラル <code>[]byte{...}</code> や <code>b[:]</code> 変換など、TinyGoのエスケープ解析では容易にヒープに逃げる）が発生するとpanicする、というTinyGo/nRF SoftDeviceでの既知の類の問題と推測される</li>
+<li>BMX055特有のバグというより、<strong>Notify購読中のcharacteristic.Write()全般に潜在する問題</strong>の可能性が高い（LPS22HB/HDC2010/スイッチでも接続中にNotifyが飛べば同様に再現する可能性がある。未検証）</li>
+</ul>
+
+<h3>未実施の対応案（次回検討）</h3>
+<ol>
+<li><code>characteristic.Write()</code>に渡すバイト列を、毎回ヒープ確保するローカルスライス/配列変換ではなく、<strong>事前確保済みのグローバルバッファ</strong>に書き込んでから渡す形に変更し、ヒープ確保そのものを回避できないか検証</li>
+<li><code>tinygo.org/x/bluetooth</code>のnRF528xx実装（<code>adapter_nrf528xx-full.go</code>等）を読み、Notify送信がどの割り込みコンテキストから呼ばれているか、GC/ヒープ確保が本当に禁止されている経路なのか確認</li>
+<li>TinyGoやtinygo.org/x/bluetoothのGitHub Issuesで"heap alloc in interrupt"を検索し、既知の回避策がないか確認</li>
+<li>再現条件の切り分け: LPS22HB/HDC2010単体でも接続中Notifyで同じpanicが起きるか実機検証（BMX055固有かNotify全般の問題か切り分け）</li>
+</ol>
+
+<div class="warn">
+<strong>現状、この問題によりBLE接続してのcharacteristic read/notify動作は未検証・未完了。</strong> GATTプロファイルの構造自体（Service/UUID/Read値の内容）はadvertisingのみの状態からは検証できないため、この問題の解決が次の最優先タスク。
+</div>
+
+</body>
+</html>

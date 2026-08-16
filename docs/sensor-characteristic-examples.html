@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>センサー値→キャラクタリスティック変換例 — MultiSensor Board</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5a5a5a;
+    --border: #d8d8d8;
+    --code-bg: #f2f2f2;
+    --table-head-bg: #eef1f5;
+    --accent: #2563eb;
+    --status-bg: #fff7e6;
+    --status-border: #e6b800;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --fg: #e6e6e6;
+      --muted: #9a9a9a;
+      --border: #3a3d42;
+      --code-bg: #24272c;
+      --table-head-bg: #1f2329;
+      --accent: #6ea8fe;
+      --status-bg: #2a2410;
+      --status-border: #8a7000;
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    line-height: 1.65;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 1.6rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.75rem; color: var(--accent); }
+  code {
+    background: var(--code-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.92rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 0.5em 0.7em;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--table-head-bg); }
+  .status {
+    background: var(--status-bg);
+    border-left: 4px solid var(--status-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  blockquote {
+    border-left: 3px solid var(--border);
+    margin: 1rem 0;
+    padding: 0.3em 1em;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+  .example {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 0.8em 1.1em;
+    margin: 0.8rem 0;
+  }
+  .bytes { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>センサー値 → BLEキャラクタリスティック 変換例</h1>
+
+<p>データの流れ（<strong>物理値 → I2C生バイト → BLEキャラクタリスティックのバイト列</strong>）を全センサーで具体例として示す。</p>
+
+<h2>1. LPS22HB（気圧・温度）</h2>
+
+<p><code>adv_env/device.ino</code> の実装をそのまま踏襲: 気圧は24bit符号なし(÷4096=hPa)、温度は16bit符号付き(÷100=℃)。</p>
+
+<p><strong>例: 気圧 1006.00 hPa, 温度 22.50℃</strong></p>
+
+<table>
+<tr><th></th><th>レジスタ</th><th>生値</th><th>計算</th></tr>
+<tr><td>PRESS_OUT (0x28-0x2A)</td><td>XL/L/H</td><td><code>00 E0 3E</code></td><td>raw=0x3EE000=4,120,576 → 4,120,576÷4096=<strong>1006.00 hPa</strong></td></tr>
+<tr><td>TEMP_OUT (0x2B-0x2C)</td><td>L/H</td><td><code>CA 08</code></td><td>raw=0x08CA=2250 → 2250÷100=<strong>22.50℃</strong></td></tr>
+</table>
+
+<p><strong>キャラクタリスティック値</strong> (<code>a0b40121</code>, int16 LE × 2):</p>
+<ul>
+<li>温度: LPS22HBのレジスタが既に「÷100=℃」形式 → <strong>生レジスタ値をそのままコピーするだけ</strong>（<code>CA 08</code> → 2250 → 22.50℃）</li>
+<li>気圧: そのまま送るとint16に収まらない（1006×100=100600 &gt; 32767）ので、<code>adv_env.ino</code> と同じ「標準大気圧との差分×100」方式を使う（絶対値×100は不可）
+  <br>(1006.00 − 1013.25) × 100 = <strong>−725</strong> → 0xFD2B → LE <span class="bytes">2B FD</span></li>
+</ul>
+
+<div class="example">送信バイト列: <span class="bytes">2B FD CA 08</span></div>
+
+<h2>2. HDC2010（温度・湿度）</h2>
+
+<p>16bit符号なし、線形マッピング（温度: 0〜65535 → −40〜125℃、湿度: 0〜65535 → 0〜100%）。LPS22HBと違い<strong>生レジスタ値とキャラクタリスティック値が一致しない</strong>。</p>
+
+<p><strong>例: 温度 23.48℃, 湿度 55.20%RH</strong></p>
+
+<table>
+<tr><th></th><th>レジスタ</th><th>生値</th><th>計算</th></tr>
+<tr><td>TEMP (0x00-0x01)</td><td>LSB/MSB</td><td><code>7C 62</code></td><td>raw=0x627C=25212 → 25212×165/65536−40=<strong>23.48℃</strong></td></tr>
+<tr><td>HUMID (0x02-0x03)</td><td>LSB/MSB</td><td><code>50 8D</code></td><td>raw=0x8D50=36176 → 36176×100/65536=<strong>55.20%</strong></td></tr>
+</table>
+
+<p><strong>キャラクタリスティック値</strong> (<code>a0b40122</code>, int16 LE ×100 × 2):</p>
+<ul>
+<li>温度: 23.48×100=2348 → 0x092C → LE <span class="bytes">2C 09</span></li>
+<li>湿度: 55.20×100=5520 → 0x1590 → LE <span class="bytes">90 15</span></li>
+</ul>
+
+<div class="example">送信バイト列: <span class="bytes">2C 09 90 15</span>（生レジスタの <span class="bytes">7C 62 50 8D</span> とは別物）</div>
+
+<h2>3. BMX055 加速度計（±2g設定, 感度0.98 mg/LSB, 12bit）</h2>
+
+<p>生の16bitレジスタは12bit値を4bit左シフトして格納（下位4bitは予備/new-dataフラグ、読み出し時に <code>&gt;&gt;4</code> で捨てる）。</p>
+
+<p><strong>例: X=+50mg, Y=−20mg, Z=+1000mg(≒1G, 静止時)</strong></p>
+
+<p>raw(12bit) = 物理値[mg] ÷ 0.98mg：X=51, Y=−20, Z=1020</p>
+
+<table>
+<tr><th>軸</th><th>レジスタ(LSB/MSB)</th><th>生バイト</th><th>12bit復元値</th></tr>
+<tr><td>X (0x02-0x03)</td><td><code>30 03</code></td><td>raw16=0x0330(=51&lt;&lt;4)</td><td>51</td></tr>
+<tr><td>Y (0x04-0x05)</td><td><code>C0 FE</code></td><td>raw16=0xFEC0(=−20&lt;&lt;4)</td><td>−20</td></tr>
+<tr><td>Z (0x06-0x07)</td><td><code>C0 3F</code></td><td>raw16=0x3FC0(=1020&lt;&lt;4)</td><td>1020</td></tr>
+</table>
+
+<div class="example"><strong>キャラクタリスティック値</strong>: 現行設計（生カウント値のまま送信）だと int16 LE で <span class="bytes">33 00 EC FF FC 03</span>（51, −20, 1020）。物理値(g)への変換は<strong>アプリ側で raw×0.98mg</strong> を想定。</div>
+
+<h2>4. BMX055 ジャイロ（±2000°/s設定, 感度16.4 LSB/(°/s), 16bit）</h2>
+
+<p>加速度と違いシフト無しの素の16bit符号付き値。</p>
+
+<p><strong>例: X=+10°/s, Y=−5°/s, Z=0°/s</strong></p>
+
+<p>raw = 物理値[°/s] × 16.4：X=164, Y=−82, Z=0</p>
+
+<table>
+<tr><th>軸</th><th>レジスタ(LSB/MSB)</th><th>生バイト</th></tr>
+<tr><td>X (0x02-0x03)</td><td><code>A4 00</code></td><td>raw=164</td></tr>
+<tr><td>Y (0x04-0x05)</td><td><code>AE FF</code></td><td>raw=−82</td></tr>
+<tr><td>Z (0x06-0x07)</td><td><code>00 00</code></td><td>raw=0</td></tr>
+</table>
+
+<div class="example"><strong>キャラクタリスティック値</strong>: 生カウントそのまま int16 LE <span class="bytes">A4 00 AE FF 00 00</span>。物理値(°/s)は<strong>アプリ側で raw÷16.4</strong>。</div>
+
+<h2>5. BMX055 磁力計（ファームウェア側で補正、µT値を送る — 決定済み）</h2>
+
+<p>X/Y/Zは13bit/13bit/15bit(RHALL含む)の生カウントだが、単純な倍率変換ができない。物理値(µT)へ正しく変換するには工場出荷時のトリム値（<code>dig_x1, dig_x2, dig_y1, dig_y2, dig_z1〜z4, dig_xyz1</code> など、チップごとに個体差のある補正レジスタ）を使った専用の補正計算（Bosch互換のBMM050系補正アルゴリズム）が必須。単純な「LSBあたり◯µT」という係数は存在しない（<code>mRes=1/1.6</code> という簡易スケールも補正後の値にのみ適用するもの）。</p>
+
+<div class="status">
+<strong>方針: ファームウェア側でトリム値読み出し＋補正計算を実装し、µT単位に変換してからcharacteristicで送る。</strong>
+</div>
+
+<p>理由（計算コスト試算）:</p>
+<ul>
+<li>Bosch公式ドライバの補正関数(X/Y/Z軸ごと)は乗除算あわせて10〜15回程度の単精度浮動小数点演算のみ。nRF52840(Cortex-M4F, ハードウェアFPU搭載)なら3軸まとめても数百サイクル(数マイクロ秒)のオーダーで、1秒間隔のNotifyには対してまったく無視できるコスト</li>
+<li>トリム値読み出しは起動時に一度、レジスタ14個程度をI2Cで読むだけ</li>
+<li>一方、トリム値をcharacteristicで公開してクライアント側に補正を任せる案は、iOSアプリ/Androidアプリ/Pythonスクリプトなど<strong>クライアントの数だけ補正ロジックを重複実装</strong>することになり、符号・スケールを間違えるリスクが上がる上にBLEプロファイルも複雑になる（トリム値を読む手順が別途必要）。計算コストが実質ゼロである以上、ファームウェア側で一度だけ正しく実装する方が合理的</li>
+</ul>
+
+<p>他の4Service（LPS22HB/HDC2010/加速度/ジャイロ）も物理値をそのまま返す設計なので、一貫性の面でもこの方針に合わせる。</p>
+
+<p>補正関数の参照実装（Bosch公式、<code>bmm050_compensate_X/Y/Z_float</code>）は下記参考資料を参照。</p>
+
+<h2>参考資料</h2>
+<ul>
+<li><a href="https://www.mouser.com/datasheet/2/783/BST_BMX055_DS000-1509552.pdf">BMX055 Data sheet (Mouser)</a></li>
+<li><a href="https://www.utmel.com/components/bmx055-sensor-datasheet-pinout-bmx055-vs-mpu9250-faq?id=1923">A General Introduction to BMX055 FAQ</a></li>
+<li><a href="https://github.com/kriswiner/BMX-055/blob/master/BMX055_MS5637_BasicAHRS_t3.ino">kriswiner/BMX-055 reference implementation</a></li>
+</ul>
+
+</body>
+</html>

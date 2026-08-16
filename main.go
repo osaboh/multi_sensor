@@ -69,12 +69,23 @@ func main() {
 	must("start adv", adv.Start())
 	defer adv.Stop()
 
-	println("advertising...")
+	startNUSService()
+	startIOService()
+	startLPS22HBService()
+	startHDC2010Service()
+
+	scanI2C() // DEBUG
+
+	startBMX055Service()
+
+	logLine("advertising...")
 	<-ctx.Done()
 }
 
 func must(action string, err error) {
 	if err != nil {
-		panic("failed to " + action + ": " + err.Error())
+		msg := "failed to " + action + ": " + err.Error()
+		logLine(msg)
+		panic(msg)
 	}
 }

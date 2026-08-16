@@ -1,19 +1,23 @@
 TARGET      = xiao-ble
-SRC         = main.go
+SRC         = $(wildcard *.go)
 HEX         = advertisement.hex
 SOFTDEVICE  = s140_nrf52_7.3.0/s140_nrf52_7.3.0_softdevice.hex
 SCAN_VENV   = tools/venv
 SCAN_NAME   = MultiSenser
 
-.PHONY: all build flash flash-softdevice flash-all recover unstick scan clean
+.PHONY: all build test flash flash-softdevice flash-all recover unstick scan clean
 
 all: build
+
+# Run the unit tests for the hardware-independent conversion package.
+test:
+	go test ./convert/...
 
 # Build the application hex (SoftDevice memory region excluded).
 build: $(HEX)
 
 $(HEX): $(SRC) go.mod go.sum
-	tinygo build -target=$(TARGET) -o=$(HEX) $(SRC)
+	tinygo build -target=$(TARGET) -o=$(HEX) .
 
 # Erase the whole chip and flash the SoftDevice (s140). Needed once per
 # chip, or any time --recover / a full erase has wiped it.
