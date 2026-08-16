@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TODO — MultiSensor Board</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5a5a5a;
+    --border: #d8d8d8;
+    --code-bg: #f2f2f2;
+    --accent: #2563eb;
+    --warn-bg: #fdecec;
+    --warn-border: #d64545;
+    --ok-bg: #eafaf0;
+    --ok-border: #2fae60;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --fg: #e6e6e6;
+      --muted: #9a9a9a;
+      --border: #3a3d42;
+      --code-bg: #24272c;
+      --accent: #6ea8fe;
+      --warn-bg: #2a1616;
+      --warn-border: #b34a4a;
+      --ok-bg: #16241c;
+      --ok-border: #3fbd76;
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    line-height: 1.65;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 1.6rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+  h2 { font-size: 1.15rem; margin-top: 2.2rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  code {
+    background: var(--code-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+  }
+  ul.todo { list-style: none; padding-left: 0; }
+  ul.todo li {
+    position: relative;
+    padding: 0.5em 0 0.5em 1.8em;
+    border-bottom: 1px solid var(--border);
+  }
+  ul.todo li:last-child { border-bottom: none; }
+  ul.todo li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.75em;
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid var(--muted);
+    border-radius: 3px;
+  }
+  .note { color: var(--muted); font-size: 0.9rem; }
+  .warn {
+    background: var(--warn-bg);
+    border-left: 4px solid var(--warn-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .ok {
+    background: var(--ok-bg);
+    border-left: 4px solid var(--ok-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  ul.todo li.done::before { content: "\2713"; border-color: var(--ok-border); color: var(--ok-border); font-size: 0.7em; text-align: center; line-height: 0.9em; }
+  ul.todo li.done { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>TODO</h1>
+<p class="note">現状の実装で残っている作業をまとめる。優先度は目安。</p>
+
+<h2>バグ</h2>
+<div class="ok">
+<strong>解決済み: 切断すると二度と再接続できなくなる</strong>（2026-08-17発見・同日修正済み）: <code>main.go</code>が<code>SetConnectHandler</code>の切断イベントで<code>cancel()</code>を呼び<code>main()</code>をreturnさせ<code>defer adv.Stop()</code>を実行していたのが原因。実は<code>tinygo.org/x/bluetooth</code>のライブラリ自体が切断時に<code>sd_ble_gap_adv_start</code>でadvertisingを自動再開する処理を既に持っており（<code>adapter_nrf528xx-peripheral.go</code>/<code>-full.go</code>）、アプリ側が余計にそれを止めていただけだった。<code>cancel()</code>呼び出しと<code>context</code>の使用を削除し、<code>main()</code>の末尾を<code>select{}</code>で永久ブロックする形に変更。接続→切断を2回連続で行い再接続できることを実機確認済み。
+</div>
+
+<h2>整理・クリーンアップ</h2>
+<ul class="todo">
+<li><code>i2cscan_debug.go</code> と <code>main.go</code> 内の <code>scanI2C()</code> 呼び出しを削除する（I2Cアドレス確認用の一時デバッグコードで、全センサーのアドレス応答は確認済みのため役目を終えている）</li>
+<li><code>docs/ble-protocol-reference.md</code> の先頭ステータスを更新する（現在「Draft。ファームウェア未実装」のままだが、実際にはGATTプロファイルは実装・実機検証済み）</li>
+</ul>
+
+<h2>設計・仕様が必要</h2>
+<ul class="todo">
+<li>NUSのRXキャラクタリスティック（コマンド入力）のプロトコル設計。現状はログ出力(TX)のみ定義済みで、RX側は未定義のまま</li>
+<li>セキュリティ（ペアリング/ボンディング）の要否を検討する。現状はオープンアクセス</li>
+<li>電源管理・スリープモードの検討。ボードはコイン電池(CR2025/CR2032)駆動を想定しているが、現状スリープ制御は一切実装していない（元のadv_env.inoは起動時に未使用センサーをsuspendしていたが、今回は全センサー常時稼働）</li>
+</ul>
+
+<h2>クライアント実装</h2>
+<ul class="todo">
+<li><code>docs/ble-protocol-reference.md</code> を参照して、実際のクライアント（スマホアプリ or PCツール）を実装する。現状は検証用の使い捨てPythonスクリプト（bleak）のみで、恒久的なクライアントは未着手</li>
+</ul>
+
+<h2>検証環境の整備</h2>
+<ul class="todo">
+<li class="done">検証に使ったPythonスクリプトを <code>tools/</code> 配下に正式なツールとして整備する。<code>tools/gatt_verify.py</code>（<code>make verify</code>）と <code>tools/write_test.py</code>（<code>make write-test</code>）を追加、実機で動作確認済み</li>
+</ul>
+
+</body>
+</html>

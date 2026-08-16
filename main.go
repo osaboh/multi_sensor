@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"machine"
 
 	"tinygo.org/x/bluetooth"
@@ -48,19 +47,23 @@ func init() {
 func main() {
 	must("enable BLE stack", adapter.Enable())
 
-	ctx, cancel := context.WithCancel(context.Background())
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
 		// This callback runs from interrupt context (SoftDevice BLE event
 		// dispatch): no heap allocation allowed here, so no device.Address
 		// formatting / string concatenation / logLine — see
 		// docs/debug-log-bmx055-wake.md ("heap alloc in interrupt").
+		//
+		// No action needed on disconnect: the library's own event handler
+		// (adapter_nrf528xx-*.go) already calls sd_ble_gap_adv_start to
+		// resume advertising before this callback even runs. Previously this
+		// called cancel() to unblock main() and return, which ran
+		// `defer adv.Stop()` right after the library had just restarted
+		// it — advertising never came back after the first disconnect.
 		if connected {
 			println("device connected")
 			return
 		}
-
 		println("device disconnected")
-		cancel()
 	})
 
 	adv := adapter.DefaultAdvertisement()
@@ -71,7 +74,6 @@ func main() {
 		},
 	}))
 	must("start adv", adv.Start())
-	defer adv.Stop()
 
 	startNUSService()
 	startIOService()
@@ -83,7 +85,7 @@ func main() {
 	startBMX055Service()
 
 	logLine("advertising...")
-	<-ctx.Done()
+	select {}
 }
 
 func must(action string, err error) {
