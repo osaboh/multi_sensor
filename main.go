@@ -1,22 +1,8 @@
 package main
 
-/*
-   - GPIO: LED OK
-   - GPIO: SW OK
-   - GPIO: buzzer 鳴動を ゴルーチンで実装する。キャンセルも。タイマーだと周波数にブレがある気がする。
-   - I2C: BMX055 9軸センサー（3軸加速度、3軸磁力、3軸ジャイロ）
-   - I2C: HDC2010 温湿度センサー
-   - I2C: LPS22HB 気圧センサー
-   - USB: からログが出力されてるかも ?
-   - BLE: キャラクタリスティクスを設計する。
-   - スマホアプリ: ???
-   - 電力制御: スリープモード ?
-*/
-
 import (
 	"context"
 	"machine"
-	"time"
 
 	"tinygo.org/x/bluetooth"
 )
@@ -53,9 +39,6 @@ func init() {
 	sw_side.Configure(machine.PinConfig{Mode: machine.PinInput})
 	buzzer.Configure(machine.PinConfig{Mode: machine.PinOutput})
 
-	//  cancel := make(chan struct{})
-	//	go buzz(cancel)
-
 	if err := i2c.Configure(machine.I2CConfig{SCL: SCL_PIN, SDA: SDA_PIN}); err != nil {
 		println("could not configure I2C:", err)
 		panic(err)
@@ -87,41 +70,7 @@ func main() {
 	defer adv.Stop()
 
 	println("advertising...")
-	address, _ := adapter.Address()
-
-	for {
-		select {
-		case <-time.After(500 * time.Millisecond):
-			println("Go Bluetooth /", address.MAC.String())
-
-			if !sw_top.Get() {
-				led1.Set(!led1.Get())
-				//				close(cancel)
-			}
-
-			if !sw_side.Get() {
-				led2.Set(!led2.Get())
-			}
-
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func buzz(cancel chan struct{}) {
-
-	for {
-		select {
-		case <-cancel:
-			// 中断通知が来た
-			return
-		default:
-			time.Sleep(time.Millisecond * 1)
-			buzzer.Set(!buzzer.Get())
-		}
-
-	}
+	<-ctx.Done()
 }
 
 func must(action string, err error) {
