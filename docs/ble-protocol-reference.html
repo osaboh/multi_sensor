@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BLEプロトコル仕様書 — MultiSensor Board</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5a5a5a;
+    --border: #d8d8d8;
+    --code-bg: #f2f2f2;
+    --table-head-bg: #eef1f5;
+    --accent: #2563eb;
+    --status-bg: #fff7e6;
+    --status-border: #e6b800;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c;
+      --fg: #e6e6e6;
+      --muted: #9a9a9a;
+      --border: #3a3d42;
+      --code-bg: #24272c;
+      --table-head-bg: #1f2329;
+      --accent: #6ea8fe;
+      --status-bg: #2a2410;
+      --status-border: #8a7000;
+    }
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    line-height: 1.65;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 1.6rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.75rem; color: var(--accent); }
+  code {
+    background: var(--code-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.92rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 0.5em 0.7em;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--table-head-bg); }
+  .status {
+    background: var(--status-bg);
+    border-left: 4px solid var(--status-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  blockquote {
+    border-left: 3px solid var(--border);
+    margin: 1rem 0;
+    padding: 0.3em 1em;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+  .example {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 0.8em 1.1em;
+    margin: 0.8rem 0;
+  }
+  .bytes { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>BLEプロトコル仕様書 — MultiSensor Board</h1>
+
+<div class="status">
+<strong>ステータス: Draft。2026-08-16時点でファームウェア未実装（設計フェーズ）。</strong><br>
+本書は今後ファームウェアが実装する予定のプロトコルの仕様であり、クライアント（スマホアプリ、PCツール等）を<strong>ソースコードを読まずに本書だけを見て実装できること</strong>を目的とする。ファームウェア実装時にこの仕様と差異が出た場合は本書を更新すること。
+</div>
+
+<h2>概要</h2>
+<table>
+<tr><th>項目</th><th>値</th></tr>
+<tr><td>ボード</td><td>switch-science ISP1807搭載BLEマルチセンサーボード</td></tr>
+<tr><td>チップ</td><td>Nordic nRF52840 (Insight SiP ISP1807モジュール)</td></tr>
+<tr><td>BLEスタック</td><td>SoftDevice s140 7.3.0</td></tr>
+<tr><td>オンボードセンサー/デバイス</td><td>BMX055(9軸), HDC2010(温湿度), LPS22HB(気圧/温度), LED×2, タクトスイッチ×2, 圧電スピーカー</td></tr>
+<tr><td>GAPデバイス名</td><td><code>Go MultiSenser</code>（暫定。変更される可能性あり）</td></tr>
+<tr><td>セキュリティ</td><td>ペアリング/ボンディング未実装。オープンアクセス（今後のセキュリティ要件次第で変更の可能性あり）</td></tr>
+<tr><td>バイトオーダー</td><td>特記なき限り<strong>リトルエンディアン</strong></td></tr>
+</table>
+
+<h2>Service一覧</h2>
+<table>
+<tr><th>Service</th><th>UUID</th><th>用途</th></tr>
+<tr><td>Nordic UART Service (NUS)</td><td><code>6E400001-B5A3-F393-E0A9-E50E24DCCA9E</code>（標準UUID）</td><td>ログ出力（現状）。将来コマンド入力用途を追加予定（プロトコル未定）</td></tr>
+<tr><td>MultiSensor I/O Service</td><td><code>a0b40100-926d-4d61-98df-8c5c62ee53b3</code></td><td>LED/Buzzer制御、スイッチ状態</td></tr>
+<tr><td>LPS22HB Service</td><td><code>a0b40120-926d-4d61-98df-8c5c62ee53b3</code></td><td>気圧・温度</td></tr>
+<tr><td>HDC2010 Service</td><td><code>a0b40130-926d-4d61-98df-8c5c62ee53b3</code></td><td>温度・湿度</td></tr>
+<tr><td>BMX055 Motion Service</td><td><code>a0b40140-926d-4d61-98df-8c5c62ee53b3</code></td><td>加速度・ジャイロ・磁力</td></tr>
+</table>
+
+<blockquote>
+<code>a0b4xxxx-926d-4d61-98df-8c5c62ee53b3</code> は本プロジェクト独自のUUIDファミリー（ランダム生成のv4 UUIDをベースに使用）。Nordicの標準NUS UUID（予約領域）とは無関係で、混在させていない。広告(Advertising)パケットで使われている <code>f96d0000-1139-4e07-8ccf-d28be904fc0f</code>（<code>adv_env</code>系ボードのサービスデータUUID）とも無関係の別の仕組み・別のUUID体系。
+</blockquote>
+
+<p>Notifyを受信するには、対象characteristicのCCCD (<code>0x2902</code>, Client Characteristic Configuration Descriptor) に <code>0x0001</code>（Notify有効）を書き込む必要がある（標準BLE作法）。</p>
+
+<hr>
+
+<h2>1. Nordic UART Service (NUS)</h2>
+<p>Service UUID: <code>6E400001-B5A3-F393-E0A9-E50E24DCCA9E</code></p>
+<table>
+<tr><th>Characteristic</th><th>UUID</th><th>Properties</th><th>内容</th></tr>
+<tr><td>RX</td><td><code>6E400002-B5A3-F393-E0A9-E50E24DCCA9E</code></td><td>Write / Write Without Response</td><td>ホスト→デバイス。<strong>現状未定義</strong>（将来のコマンドプロトコルは別途仕様化）</td></tr>
+<tr><td>TX</td><td><code>6E400003-B5A3-F393-E0A9-E50E24DCCA9E</code></td><td>Notify</td><td>デバイス→ホスト。ログ1行ごとにNotify。プレーンテキスト(UTF-8)、行末の改行コードは付与しない</td></tr>
+</table>
+<p class="note"><strong>注意</strong>: メッセージ長はネゴシエートされたATT MTUに制限される（デフォルトATT_MTU=23、実データ最大20byte）。長いログ行の分割/切り詰め挙動は未定義（実装時に確定させる）。</p>
+
+<hr>
+
+<h2>2. MultiSensor I/O Service</h2>
+<p>Service UUID: <code>a0b40100-926d-4d61-98df-8c5c62ee53b3</code></p>
+<table>
+<tr><th>Characteristic</th><th>UUID</th><th>Properties</th><th>サイズ</th><th>内容</th></tr>
+<tr><td>LED1</td><td><code>a0b40101-...</code></td><td>Write</td><td>1 byte</td><td><code>0x00</code>=OFF, <code>0x01</code>=ON（他の値は未定義）</td></tr>
+<tr><td>LED2</td><td><code>a0b40102-...</code></td><td>Write</td><td>1 byte</td><td>同上</td></tr>
+<tr><td>Buzzer</td><td><code>a0b40103-...</code></td><td>Write</td><td>2 byte</td><td>uint16 LE、鳴動時間[ms]。<code>0</code>=即時停止。書き込み後、指定時間で自動停止</td></tr>
+<tr><td>SW_TOP</td><td><code>a0b40111-...</code></td><td>Read, Notify</td><td>1 byte</td><td><code>0x00</code>=解放, <code>0x01</code>=押下。<strong>状態変化時のみ</strong>Notify（エッジトリガ、ポーリングではない）</td></tr>
+<tr><td>SW_SIDE</td><td><code>a0b40112-...</code></td><td>Read, Notify</td><td>1 byte</td><td>同上</td></tr>
+</table>
+
+<h3>例</h3>
+<div class="example">
+LED1点灯: <code>a0b40101</code> に <span class="bytes">01</span> を書き込み<br>
+Buzzerを300ms鳴らす: <code>a0b40103</code> に uint16 LE で <code>0x012C</code>(=300) → バイト列 <span class="bytes">2C 01</span> を書き込み<br>
+SW_TOPが押されるとNotifyで <span class="bytes">01</span> が飛ぶ。離すと <span class="bytes">00</span> が飛ぶ
+</div>
+
+<hr>
+
+<h2>3. LPS22HB Service（気圧・温度）</h2>
+<p>Service UUID: <code>a0b40120-926d-4d61-98df-8c5c62ee53b3</code></p>
+<table>
+<tr><th>Characteristic</th><th>UUID</th><th>Properties</th><th>サイズ</th><th>Notifyタイミング</th></tr>
+<tr><td>Pressure/Temperature</td><td><code>a0b40121-...</code></td><td>Read, Notify</td><td>4 byte</td><td>周期的（1秒間隔）</td></tr>
+</table>
+
+<p><strong>フォーマット</strong> (offset順、LE):</p>
+<table>
+<tr><th>offset</th><th>型</th><th>フィールド</th><th>単位/変換式</th></tr>
+<tr><td>0</td><td>int16</td><td>pressure_dev</td><td>(実気圧hPa − 1013.25) × 100。単位0.01hPa</td></tr>
+<tr><td>2</td><td>int16</td><td>temperature</td><td>実温度℃ × 100。単位0.01℃</td></tr>
+</table>
+
+<h3>例: 気圧1006.00hPa, 温度22.50℃</h3>
+<div class="example">
+pressure_dev = (1006.00 − 1013.25) × 100 = <strong>−725</strong> → LE <span class="bytes">2B FD</span><br>
+temperature = 22.50 × 100 = <strong>2250</strong> → LE <span class="bytes">CA 08</span><br>
+送信バイト列: <span class="bytes">2B FD CA 08</span>
+</div>
+
+<hr>
+
+<h2>4. HDC2010 Service（温度・湿度）</h2>
+<p>Service UUID: <code>a0b40130-926d-4d61-98df-8c5c62ee53b3</code></p>
+<table>
+<tr><th>Characteristic</th><th>UUID</th><th>Properties</th><th>サイズ</th><th>Notifyタイミング</th></tr>
+<tr><td>Temperature/Humidity</td><td><code>a0b40131-...</code></td><td>Read, Notify</td><td>4 byte</td><td>周期的（1秒間隔）</td></tr>
+</table>
+
+<p><strong>フォーマット</strong> (offset順、LE):</p>
+<table>
+<tr><th>offset</th><th>型</th><th>フィールド</th><th>単位/変換式</th></tr>
+<tr><td>0</td><td>int16</td><td>temperature</td><td>実温度℃ × 100。単位0.01℃</td></tr>
+<tr><td>2</td><td>int16</td><td>humidity</td><td>実湿度%RH × 100。単位0.01%</td></tr>
+</table>
+
+<h3>例: 温度23.48℃, 湿度55.20%RH</h3>
+<div class="example">
+temperature = 23.48 × 100 = <strong>2348</strong> → LE <span class="bytes">2C 09</span><br>
+humidity = 55.20 × 100 = <strong>5520</strong> → LE <span class="bytes">90 15</span><br>
+送信バイト列: <span class="bytes">2C 09 90 15</span>
+</div>
+
+<hr>
+
+<h2>5. BMX055 Motion Service（加速度・ジャイロ・磁力）</h2>
+<p>Service UUID: <code>a0b40140-926d-4d61-98df-8c5c62ee53b3</code></p>
+<table>
+<tr><th>Characteristic</th><th>UUID</th><th>Properties</th><th>サイズ</th><th>Notifyタイミング</th></tr>
+<tr><td>Accelerometer</td><td><code>a0b40141-...</code></td><td>Read, Notify</td><td>6 byte</td><td>周期的（1秒間隔）</td></tr>
+<tr><td>Gyroscope</td><td><code>a0b40142-...</code></td><td>Read, Notify</td><td>6 byte</td><td>周期的（1秒間隔）</td></tr>
+<tr><td>Magnetometer</td><td><code>a0b40143-...</code></td><td>Read, Notify</td><td>12 byte</td><td>周期的（1秒間隔）</td></tr>
+</table>
+
+<p>加速度・ジャイロは<strong>未較正の生カウント値</strong>（クライアント側で物理値に変換）、磁力は<strong>ファームウェア側で工場トリム値による較正済みのµT値</strong>を返す。この非対称は意図的（詳細: 磁力の較正はBoschの専用アルゴリズムが必須で単純な倍率変換が不可能なため）。</p>
+
+<h3>5.1 Accelerometer (<code>a0b40141</code>)</h3>
+<p>±2g設定、感度 <strong>0.98 mg/LSB</strong>。</p>
+<table>
+<tr><th>offset</th><th>型</th><th>フィールド</th><th>変換式（クライアント側で実施）</th></tr>
+<tr><td>0</td><td>int16</td><td>accel_x</td><td>生カウント × 0.98 = mg</td></tr>
+<tr><td>2</td><td>int16</td><td>accel_y</td><td>同上</td></tr>
+<tr><td>4</td><td>int16</td><td>accel_z</td><td>同上</td></tr>
+</table>
+<div class="example">
+<strong>例</strong>: X=+50mg, Y=−20mg, Z=+1000mg(≒1G)<br>
+raw = 物理値[mg]÷0.98mg: X=51, Y=−20, Z=1020<br>
+バイト列: <span class="bytes">33 00 EC FF FC 03</span>（51, −20, 1020のint16 LE）
+</div>
+
+<h3>5.2 Gyroscope (<code>a0b40142</code>)</h3>
+<p>±2000°/s設定、感度 <strong>16.4 LSB/(°/s)</strong>。</p>
+<table>
+<tr><th>offset</th><th>型</th><th>フィールド</th><th>変換式（クライアント側で実施）</th></tr>
+<tr><td>0</td><td>int16</td><td>gyro_x</td><td>生カウント ÷ 16.4 = °/s</td></tr>
+<tr><td>2</td><td>int16</td><td>gyro_y</td><td>同上</td></tr>
+<tr><td>4</td><td>int16</td><td>gyro_z</td><td>同上</td></tr>
+</table>
+<div class="example">
+<strong>例</strong>: X=+10°/s, Y=−5°/s, Z=0°/s<br>
+raw = 物理値[°/s]×16.4: X=164, Y=−82, Z=0<br>
+バイト列: <span class="bytes">A4 00 AE FF 00 00</span>
+</div>
+
+<h3>5.3 Magnetometer (<code>a0b40143</code>)</h3>
+<p><strong>ファームウェアがBosch互換のトリム補正計算を実施済み。クライアント側での追加変換は不要</strong>、そのままµT単位の値として使用する。</p>
+<table>
+<tr><th>offset</th><th>型</th><th>フィールド</th><th>単位</th></tr>
+<tr><td>0</td><td>float32</td><td>mag_x</td><td>µT（そのまま使用）</td></tr>
+<tr><td>4</td><td>float32</td><td>mag_y</td><td>µT</td></tr>
+<tr><td>8</td><td>float32</td><td>mag_z</td><td>µT</td></tr>
+</table>
+<p class="note">範囲の目安: X/Y ±1300µT, Z ±2500µT（センサー分解能 約0.3µT）。float32はIEEE754単精度、リトルエンディアン。</p>
+
+<hr>
+
+<h2>実装メモ（クライアント開発者向け）</h2>
+<ul>
+<li>全てのNotify対応characteristicはRead属性も持つため、接続直後にNotifyを待たずポーリングで初期値を取得できる</li>
+<li>SW_TOP/SW_SIDEは<strong>エッジトリガ</strong>（状態変化時のみ）、センサー系（LPS22HB/HDC2010/BMX055）は<strong>周期トリガ</strong>（1秒毎、値の変化有無に関わらず送信）— Notify頻度の想定が異なる点に注意</li>
+<li>加速度・ジャイロが生カウント値である一方、磁力だけ物理値(µT)である非対称に注意（5節参照）</li>
+<li>現状ペアリング/ボンディングは実装されていないため、BLE接続時に特別な認証手続きは不要</li>
+</ul>
+
+<h2>関連ドキュメント</h2>
+<ul>
+<li><code>docs/sensor-characteristic-examples.md</code> — 本書のセンサー変換式のより詳細な導出・データシート根拠</li>
+</ul>
+
+</body>
+</html>
