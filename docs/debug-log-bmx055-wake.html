@@ -226,8 +226,26 @@ PWR_CNTL1 (0x4B) = 0x01   // Power Control bit ON</code></pre>
 <strong>heap alloc in interrupt panicは（接続ハンドラ・Buzzerハンドラともに）解決済み。</strong> BLE接続してのcharacteristic read/notify/write動作を実機で確認できた。
 </div>
 
-<h3>副産物として気づいた別の小さな問題（未調査）</h3>
-<p>接続中のNotify受信テストで、<strong>LPS22HBだけ一度もNotifyが飛んでこなかった</strong>（他の全センサーは正常に届いた）。<code>readLPS22HB()</code>がエラーを返し続けている可能性がある（現状はエラーを黙って握りつぶしているだけでログに出していない）。次回軽く調査する価値あり。</p>
+<hr>
+
+<h2>LPS22HBのNotifyが届かない問題（解決済み, 2026-08-17）</h2>
+
+<h3>調査</h3>
+<p><code>sensor_lps22hb.go</code>に一時的にログを追加し（RTTバッファ直読み手法を再利用）、<code>readLPS22HB()</code>の<code>STATUS</code>レジスタ(0x27)ポーリングを観察したところ、<strong>毎回<code>status=0x00</code>のまま</strong>で、T_DA/P_DAビットが一度も立たないことが判明。元のループにはタイムアウトが無かったため、goroutineが実質無限ループでブロックし続け、一度もNotifyが送られていなかった。</p>
+
+<h3>根本原因</h3>
+<p><code>i2c.go</code>の<code>regWrite</code>/<code>regRead</code>には<strong>排他制御が一切無かった</strong>。LPS22HB/HDC2010/BMX055はそれぞれ独立したgoroutineから同じI2Cバス（<code>machine.I2C0</code>）に周期的にアクセスしており、<code>machine.I2C.Tx</code>自体は並行呼び出しに対して安全である保証がない。複数センサーのI2Cトランザクションが同時に競合し、LPS22HBの「ワンショット計測開始→ステータスポーリング→データ読み出し」という一連の手順が他センサーのアクセスと衝突して壊れていたと考えられる（HDC2010/BMX055がconfigureMagTrim等の連続レジスタアクセスパターン上、たまたま影響を受けにくかっただけで、LPS22HBだけが症状として顕在化した可能性が高い）。</p>
+
+<h3>対処</h3>
+<p><code>i2c.go</code>に<code>sync.Mutex</code>を追加し、<code>regWrite</code>/<code>regRead</code>それぞれの呼び出し単位でロックするよう変更。加えて、元々無限ループだったstatusポーリングに最大20回(約200ms)のタイムアウトを追加し、仮にセンサーが応答しなくても該当goroutineが永久にブロックしないようにした。</p>
+<p><strong>検証結果</strong>: 修正後、LPS22HB/HDC2010/Accel/Gyro/Mag全5キャラクタリスティックが20秒間で均等に20回ずつNotifyを送信することを確認（以前はLPS22HBだけ0回だった）。</p>
+
+<div class="ok">
+<strong>LPS22HB Notify問題も解決済み。</strong> 全5センサーcharacteristicが安定してNotifyを送信することを実機で確認できた。
+</div>
+
+<h3>教訓</h3>
+<p>複数のgoroutineが同じハードウェアバス（I2C/SPI等）に個別にアクセスする設計では、バスドライバ自体に排他制御が無い前提で、呼び出し側で明示的にロックする必要がある。今回は正常に動いていたHDC2010/BMX055が「たまたま」動いていただけで、センサーが増えるごとに競合の顕在化リスクは上がる。ポーリングループには常にタイムアウトを入れ、無限にブロックしうる箇所を作らないことも合わせて重要。</p>
 
 </body>
 </html>

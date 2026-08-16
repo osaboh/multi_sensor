@@ -1,12 +1,15 @@
 package main
 
 import (
+	"errors"
 	"time"
 
 	"tinygo.org/x/bluetooth"
 
 	"main/convert"
 )
+
+var errLPS22HBTimeout = errors.New("lps22hb: timed out waiting for status")
 
 const (
 	lps22hbAddr = 0x5C
@@ -53,15 +56,22 @@ func readLPS22HB() (pressureHPa, temperatureC float64, err error) {
 	if err = regWrite(lps22hbAddr, lps22hbCtrlReg2, 0x11); err != nil { // one-shot enable
 		return
 	}
-	for {
+	const maxAttempts = 20
+	ready := false
+	for i := 0; i < maxAttempts; i++ {
 		var status [1]byte
 		if err = regRead(lps22hbAddr, lps22hbStatus, status[:]); err != nil {
 			return
 		}
 		if status[0]&0x03 == 0x03 { // T_DA and P_DA both ready
+			ready = true
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		err = errLPS22HBTimeout
+		return
 	}
 
 	var pbuf [3]byte
