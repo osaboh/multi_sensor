@@ -50,12 +50,16 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
+		// This callback runs from interrupt context (SoftDevice BLE event
+		// dispatch): no heap allocation allowed here, so no device.Address
+		// formatting / string concatenation / logLine — see
+		// docs/debug-log-bmx055-wake.md ("heap alloc in interrupt").
 		if connected {
-			println("device connected:", device.Address.String())
+			println("device connected")
 			return
 		}
 
-		println("device disconnected:", device.Address.String())
+		println("device disconnected")
 		cancel()
 	})
 

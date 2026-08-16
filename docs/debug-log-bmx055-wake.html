@@ -18,6 +18,8 @@
     --status-border: #e6b800;
     --warn-bg: #fdecec;
     --warn-border: #d64545;
+    --ok-bg: #eafaf0;
+    --ok-border: #2fae60;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -32,6 +34,8 @@
       --status-border: #8a7000;
       --warn-bg: #2a1616;
       --warn-border: #b34a4a;
+      --ok-bg: #16241c;
+      --ok-border: #3fbd76;
     }
   }
   body {
@@ -88,6 +92,13 @@
   .warn {
     background: var(--warn-bg);
     border-left: 4px solid var(--warn-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
+  .ok {
+    background: var(--ok-bg);
+    border-left: 4px solid var(--ok-border);
     padding: 0.8em 1em;
     margin: 1rem 0;
     font-size: 0.95rem;
@@ -164,7 +175,7 @@ PWR_CNTL1 (0x4B) = 0x01   // Power Control bit ON</code></pre>
 
 <hr>
 
-<h2>追加で発見した第2の問題: <code>heap alloc in interrupt</code> panic（未解決・要修正）</h2>
+<h2>追加で発見した第2の問題: <code>heap alloc in interrupt</code> panic（解決済み, 2026-08-17）</h2>
 <p>BMX055の<code>wakeBMX055()</code>修正後、advertisingは正常化し、macOSの<code>bleak</code>から実際にGATT接続を試みたところ、接続直後に<strong>新しいpanicが発生し、advertisingごと完全に停止</strong>した。</p>
 
 <h3>症状</h3>
@@ -181,17 +192,42 @@ PWR_CNTL1 (0x4B) = 0x01   // Power Control bit ON</code></pre>
 <li>BMX055特有のバグというより、<strong>Notify購読中のcharacteristic.Write()全般に潜在する問題</strong>の可能性が高い（LPS22HB/HDC2010/スイッチでも接続中にNotifyが飛べば同様に再現する可能性がある。未検証）</li>
 </ul>
 
-<h3>未実施の対応案（次回検討）</h3>
+<h3>調査 (2026-08-17)</h3>
+<p>優先度順に4項目で調査した:</p>
 <ol>
-<li><code>characteristic.Write()</code>に渡すバイト列を、毎回ヒープ確保するローカルスライス/配列変換ではなく、<strong>事前確保済みのグローバルバッファ</strong>に書き込んでから渡す形に変更し、ヒープ確保そのものを回避できないか検証</li>
-<li><code>tinygo.org/x/bluetooth</code>のnRF528xx実装（<code>adapter_nrf528xx-full.go</code>等）を読み、Notify送信がどの割り込みコンテキストから呼ばれているか、GC/ヒープ確保が本当に禁止されている経路なのか確認</li>
-<li>TinyGoやtinygo.org/x/bluetoothのGitHub Issuesで"heap alloc in interrupt"を検索し、既知の回避策がないか確認</li>
-<li>再現条件の切り分け: LPS22HB/HDC2010単体でも接続中Notifyで同じpanicが起きるか実機検証（BMX055固有かNotify全般の問題か切り分け）</li>
+<li><strong>既知issue検索(旧項目3)</strong>: <a href="https://github.com/tinygo-org/bluetooth/issues/176">tinygo-org/bluetooth#176</a> が完全に一致する既知issue。nRF51/52でnusserverサンプルを動かすと同じ<code>heap alloc in interrupt</code>が発生し、原因はSoftDeviceへ渡すCの構造体がGoのエスケープ解析でヒープに逃げること。<strong>未解決のまま放置されている</strong>issue。関連する<a href="https://github.com/tinygo-org/tinygo/issues/2871">tinygo-org/tinygo#2871</a>「Allow heap allocations in interrupts」も未解決 — 割り込み中のヒープ確保はTinyGoのGC設計上、恒久的に禁止する方針</li>
+<li><strong>ライブラリソース確認(旧項目2)</strong>: <code>tinygo.org/x/bluetooth@v0.13.0</code>の<code>gatts_sd.go</code>を直接確認したところ、<code>sd_ble_gatts_hvx</code>/<code>sd_ble_gatts_value_set</code>へ渡す内部パラメータ構造体は<strong>すでに<code>_noescape</code>というCラッパー関数でエスケープ対策済み</strong>だった（issue #176の「ワークアラウンド」が本体に反映済み）。つまりライブラリ内部の構造体は原因ではない</li>
+<li><strong>グローバルバッファ化(旧項目1、対応案として先に実施)</strong>: 呼び出し側で<code>characteristic.Write()</code>に渡すバイト列をローカル変数のスライス化からパッケージレベルのグローバル配列に変更(<code>lps22hbNotifyBuf</code>等)。<strong>→ これだけでは解消しなかった</strong>。パニック位置が<code>main.startBMX055Service$1</code>から<code>main.main$1</code>に変わったのみ</li>
+<li><strong>再現条件の切り分け(旧項目4)</strong>: 3の修正後に切り分けた結果、新しいパニック位置<code>main.main$1</code>から<strong>真犯人が判明</strong> — <code>main()</code>内の<code>adapter.SetConnectHandler</code>のコールバック（接続イベントで割り込みから直接呼ばれる）にあった<code>println("device connected:", device.Address.String())</code>。<code>device.Address.String()</code>の文字列変換がヒープ確保していた。<strong>characteristic.Write()もsensor系コードも実は無関係だった</strong></li>
 </ol>
 
-<div class="warn">
-<strong>現状、この問題によりBLE接続してのcharacteristic read/notify動作は未検証・未完了。</strong> GATTプロファイルの構造自体（Service/UUID/Read値の内容）はadvertisingのみの状態からは検証できないため、この問題の解決が次の最優先タスク。
+<h3>対処</h3>
+<p><code>main.go</code>の接続ハンドラから<code>device.Address.String()</code>呼び出しを削除（固定文字列の<code>println("device connected")</code>に変更）。これで解決。</p>
+<p><strong>検証結果</strong>: <code>bleak</code>から接続し、LPS22HB/HDC2010/Accel/Gyro/Mag/SW_TOP/SW_SIDE全キャラクタリスティックにNotify購読、20秒間クラッシュなく安定して受信できることを確認。</p>
+
+<h3>追加調査: グローバルバッファ化(3番)は本当に必要だったか (2026-08-17)</h3>
+<p><code>characteristic.Write()</code>は<code>main()</code>の接続ハンドラとは異なり、<strong>私たちが自分のgoroutineから呼んでいるだけの普通の関数呼び出し</strong>であり、割り込みハンドラそのものではない。<code>tinygo.org/x/bluetooth@v0.13.0</code>の<code>adapter_sd.go</code>を確認すると、割り込みコンテキストで実際に動くのは<code>interrupt.New(nrf.IRQ_SWI2, ...)</code>に登録された<code>handleEvent()</code>と、そこから呼ばれる<code>connectHandler</code>/<code>WriteEvent</code>コールバックだけ。周期的なセンサーNotify用goroutine内の<code>char.Write(b[:])</code>はこの経路に含まれないため、<strong>グローバルバッファ化は不要だった</strong>と結論。<code>sensor_lps22hb.go</code>/<code>sensor_hdc2010.go</code>/<code>sensor_bmx055.go</code>/<code>ble_io.go</code>のグローバルバッファをローカル変数に戻した（実機再検証済み、問題なし）。</p>
+
+<h3>第3の問題: Buzzerの<code>WriteEvent</code>でも同種のpanicを発見・修正 (2026-08-17)</h3>
+<p><code>ble_io.go</code>の<code>WriteEvent</code>コールバック（LED1/LED2/Buzzer）は<code>SetConnectHandler</code>と同じ<code>handleEvent()</code>経由で<strong>割り込みコンテキストから直接呼ばれる</strong>。このうちBuzzerのハンドラ<code>handleBuzzerWrite()</code>は<code>go buzz(gen, durationMs)</code>で<strong>新しいgoroutineを起動</strong>していた。TinyGoでの<code>go</code>文はgoroutine用スタックをヒープから確保するため、これも<code>heap alloc in interrupt</code>の対象になると推測し、実機でBuzzer characteristicに書き込んで検証したところ、想定通り再現した（<code>main.startIOService$3</code> = Buzzerの<code>WriteEvent</code>クロージャでpanic）。</p>
+<p><strong>修正</strong>: <code>WriteEvent</code>側は単純な変数書き込み（<code>buzzerRequestedMs</code>/<code>buzzerRequestGen</code>の更新）のみ行うようにし、実際にブザーを鳴らす処理は起動時に一度だけ立ち上げる常駐goroutine（<code>buzzWorker</code>。スイッチ監視の<code>pollSwitches</code>と同じポーリング方式）に移した。割り込みコンテキストのコールバックから新規goroutineを起動しない、という原則を徹底。</p>
+<p><strong>検証結果</strong>: 修正後、Buzzer characteristicへの書き込み（response有り/無し両方）→接続維持→切断までクラッシュなく完了することを確認。</p>
+
+<h3>教訓（一般化）</h3>
+<p><code>SetConnectHandler</code>・<code>WriteEvent</code>はいずれも<code>tinygo.org/x/bluetooth</code>のSoftDevice実装で<strong>実際の割り込みハンドラから直接呼ばれる</strong>。この中では:</p>
+<ul>
+<li>文字列の書式化・連結（<code>.String()</code>, <code>fmt.Sprintf</code>等）</li>
+<li><code>go</code>文によるgoroutine起動</li>
+<li>その他ヒープ確保を伴うあらゆる操作（スライスの<code>append</code>によるサイズ拡張、mapへの新規要素追加等）</li>
+</ul>
+<p>を行ってはならない。単純な数値/構造体フィールドの読み書きに留め、重い処理は常駐goroutineに委譲してポーリングまたは（サイズ固定の）チャネルで受け渡す設計にする。</p>
+
+<div class="ok">
+<strong>heap alloc in interrupt panicは（接続ハンドラ・Buzzerハンドラともに）解決済み。</strong> BLE接続してのcharacteristic read/notify/write動作を実機で確認できた。
 </div>
+
+<h3>副産物として気づいた別の小さな問題（未調査）</h3>
+<p>接続中のNotify受信テストで、<strong>LPS22HBだけ一度もNotifyが飛んでこなかった</strong>（他の全センサーは正常に届いた）。<code>readLPS22HB()</code>がエラーを返し続けている可能性がある（現状はエラーを黙って握りつぶしているだけでログに出していない）。次回軽く調査する価値あり。</p>
 
 </body>
 </html>

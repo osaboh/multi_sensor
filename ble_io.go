@@ -17,10 +17,15 @@ var (
 	swSideCharUUID = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x12, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
 )
 
-// buzzerGen invalidates any in-flight buzz() goroutine when a new Buzzer
-// write supersedes it, so an old short beep can't cut off a newer one (or
-// vice versa).
-var buzzerGen uint32
+// Buzzer state, updated by the WriteEvent callback (which runs from
+// interrupt context — see docs/debug-log-bmx055-wake.md) and consumed by the
+// always-running buzzWorker goroutine below. WriteEvent must never spawn a
+// goroutine itself (that allocates a new stack, which panics with "heap
+// alloc in interrupt"); it only ever does plain word-sized writes here.
+var (
+	buzzerRequestedMs uint16
+	buzzerRequestGen  uint32
+)
 
 func startIOService() {
 	var swTopChar, swSideChar bluetooth.Characteristic
@@ -58,7 +63,11 @@ func startIOService() {
 					if offset != 0 || len(value) != 2 {
 						return
 					}
-					handleBuzzerWrite(binary.LittleEndian.Uint16(value))
+					buzzerRequestedMs = binary.LittleEndian.Uint16(value)
+					buzzerRequestGen++
+					if buzzerRequestedMs == 0 {
+						buzzer.Low()
+					}
 				},
 			},
 			{
@@ -77,6 +86,7 @@ func startIOService() {
 	}))
 
 	go pollSwitches(&swTopChar, &swSideChar)
+	go buzzWorker()
 }
 
 // setLED drives an active-low LED (Low = on, High = off).
@@ -116,14 +126,24 @@ func pollSwitches(swTopChar, swSideChar *bluetooth.Characteristic) {
 	}
 }
 
-func handleBuzzerWrite(durationMs uint16) {
-	buzzerGen++
-	gen := buzzerGen
-	if durationMs == 0 {
-		buzzer.Low()
-		return
+// buzzWorker is the single, always-running goroutine that actually drives
+// the buzzer. It polls buzzerRequestGen (same pattern as pollSwitches)
+// instead of the WriteEvent callback spawning a fresh goroutine per write.
+func buzzWorker() {
+	var servedGen uint32
+	for {
+		time.Sleep(5 * time.Millisecond)
+		gen := buzzerRequestGen
+		if gen == servedGen {
+			continue
+		}
+		servedGen = gen
+		durationMs := buzzerRequestedMs
+		if durationMs == 0 {
+			continue
+		}
+		buzz(gen, durationMs)
 	}
-	go buzz(gen, durationMs)
 }
 
 // buzz drives the passive piezo buzzer with a square wave (toggling the pin
@@ -132,13 +152,13 @@ func handleBuzzerWrite(durationMs uint16) {
 func buzz(gen uint32, durationMs uint16) {
 	deadline := time.Now().Add(time.Duration(durationMs) * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if gen != buzzerGen {
+		if gen != buzzerRequestGen {
 			return
 		}
 		buzzer.Set(!buzzer.Get())
 		time.Sleep(time.Millisecond)
 	}
-	if gen == buzzerGen {
+	if gen == buzzerRequestGen {
 		buzzer.Low()
 	}
 }
