@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
+import android.util.Log
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,6 +98,7 @@ class BleClient(private val context: Context) {
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            if (_connectionState.value != ConnectionState.Scanning) return
             val name = result.scanRecord?.deviceName ?: result.device.name ?: return
             if (!name.contains(BleUuids.DEVICE_NAME_FILTER)) return
             bluetoothManager?.adapter?.bluetoothLeScanner?.stopScan(this)
@@ -113,6 +115,8 @@ class BleClient(private val context: Context) {
                     g.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
+                    g.close()
+                    gatt = null
                     _connectionState.value = ConnectionState.Disconnected("status=$status")
                 }
             }
@@ -131,6 +135,9 @@ class BleClient(private val context: Context) {
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.w("BleClient", "CCCD write failed for ${NOTIFY_CHARACTERISTICS.getOrNull(notifyIndex)}: status=$status")
+            }
             notifyIndex++
             enableNextNotification(g)
         }
