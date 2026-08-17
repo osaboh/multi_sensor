@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,11 +25,26 @@ import androidx.compose.ui.unit.dp
 fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
     val connectionState by bleClient.connectionState.collectAsState()
     val readings by bleClient.readings.collectAsState()
+    val writeStatus by bleClient.writeStatus.collectAsState()
     var led1On by remember { mutableStateOf(false) }
     var led2On by remember { mutableStateOf(false) }
+    val isConnected = connectionState == ConnectionState.Connected
+
+    LaunchedEffect(connectionState) {
+        if (!isConnected) {
+            led1On = false
+            led2On = false
+        }
+    }
 
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Text(text = "接続状態: ${connectionStateLabel(connectionState)}")
+        if (connectionState is ConnectionState.Idle || connectionState is ConnectionState.Disconnected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = { bleClient.startScan() }) {
+                Text(text = "再スキャン")
+            }
+        }
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(text = "気圧/温度(LPS22HB): " + (readings.lps22hb?.let {
@@ -57,6 +73,7 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
                     led1On = it
                     bleClient.setLed1(it)
                 },
+                enabled = isConnected,
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -68,11 +85,16 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
                     led2On = it
                     bleClient.setLed2(it)
                 },
+                enabled = isConnected,
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { bleClient.triggerBuzzer(300) }) {
+        Button(onClick = { bleClient.triggerBuzzer(300) }, enabled = isConnected) {
             Text(text = "Buzzer 300ms")
+        }
+        if (writeStatus != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = writeStatus!!)
         }
     }
 }

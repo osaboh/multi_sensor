@@ -56,6 +56,9 @@ class BleClient(private val context: Context) {
     private val _readings = MutableStateFlow(SensorReadings())
     val readings: StateFlow<SensorReadings> = _readings.asStateFlow()
 
+    private val _writeStatus = MutableStateFlow<String?>(null)
+    val writeStatus: StateFlow<String?> = _writeStatus.asStateFlow()
+
     private val bluetoothManager: BluetoothManager? =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
 
@@ -105,6 +108,10 @@ class BleClient(private val context: Context) {
             _connectionState.value = ConnectionState.Connecting
             gatt = result.device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         }
+
+        override fun onScanFailed(errorCode: Int) {
+            _connectionState.value = ConnectionState.Disconnected("scan failed: errorCode=$errorCode")
+        }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -148,11 +155,31 @@ class BleClient(private val context: Context) {
             value: ByteArray,
         ) {
             when (characteristic.uuid) {
-                BleUuids.LPS22HB_CHAR -> _readings.update { it.copy(lps22hb = decodeLps22hb(value)) }
-                BleUuids.HDC2010_CHAR -> _readings.update { it.copy(hdc2010 = decodeHdc2010(value)) }
-                BleUuids.ACCEL_CHAR -> _readings.update { it.copy(accel = decodeAccel(value)) }
-                BleUuids.GYRO_CHAR -> _readings.update { it.copy(gyro = decodeGyro(value)) }
-                BleUuids.MAG_CHAR -> _readings.update { it.copy(mag = decodeMag(value)) }
+                BleUuids.LPS22HB_CHAR -> if (value.size >= 4) {
+                    _readings.update { it.copy(lps22hb = decodeLps22hb(value)) }
+                }
+                BleUuids.HDC2010_CHAR -> if (value.size >= 4) {
+                    _readings.update { it.copy(hdc2010 = decodeHdc2010(value)) }
+                }
+                BleUuids.ACCEL_CHAR -> if (value.size >= 6) {
+                    _readings.update { it.copy(accel = decodeAccel(value)) }
+                }
+                BleUuids.GYRO_CHAR -> if (value.size >= 6) {
+                    _readings.update { it.copy(gyro = decodeGyro(value)) }
+                }
+                BleUuids.MAG_CHAR -> if (value.size >= 12) {
+                    _readings.update { it.copy(mag = decodeMag(value)) }
+                }
+            }
+        }
+
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int,
+        ) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                _writeStatus.value = "書き込み失敗: ${characteristic.uuid} status=$status"
             }
         }
     }
