@@ -25,6 +25,13 @@ const (
 	bmx055GyrLPM1  = 0x11
 	bmx055GyrDX    = 0x02
 
+	bmx055GyrLPM1Normal  = 0x00
+	bmx055GyrLPM1Suspend = 0x80 // LPM1 bit7 (suspend), see BMG160 datasheet register 0x11
+
+	// Wake-up time from Suspend mode to a settled measurement (twusm in the
+	// BMG160 datasheet, page 8): 30ms typical.
+	bmx055GyrWakeSettle = 30 * time.Millisecond
+
 	bmx055MagPwrCntl1 = 0x4B
 	bmx055MagPwrCntl2 = 0x4C
 	bmx055MagDX       = 0x42
@@ -87,7 +94,7 @@ func startBMX055Service() {
 				b := convert.EncodeAccel(x, y, z)
 				accelChar.Write(b[:])
 			}
-			if x, y, z, err := readGyro(); err == nil {
+			if x, y, z, err := readGyroDutyCycled(); err == nil {
 				b := convert.EncodeGyro(x, y, z)
 				gyroChar.Write(b[:])
 			}
@@ -132,6 +139,14 @@ func wakeBMX055() error {
 			time.Sleep(s.wait)
 		}
 	}
+
+	// The gyroscope is duty-cycled (see readGyroDutyCycled): woken only for
+	// the moment it takes to read a sample, otherwise left in Suspend mode
+	// (25µA vs. 5mA in Normal mode, per the BMG160 datasheet). Configuration
+	// registers survive Suspend, so this only needs to happen once here.
+	if err := regWriteRetry(bmx055GyrAddr, bmx055GyrLPM1, bmx055GyrLPM1Suspend, 5, 20*time.Millisecond); err != nil {
+		return errors.New("gyr suspend: " + err.Error())
+	}
 	return nil
 }
 
@@ -158,6 +173,25 @@ func readAccel() (x, y, z int16, err error) {
 	x = convert.DecodeAccel12Bit(buf[0], buf[1])
 	y = convert.DecodeAccel12Bit(buf[2], buf[3])
 	z = convert.DecodeAccel12Bit(buf[4], buf[5])
+	return
+}
+
+// readGyroDutyCycled wakes the gyroscope from Suspend mode, waits out its
+// datasheet-specified wake-up time, takes a reading, and returns it to
+// Suspend — so the gyro (5mA in Normal mode, by far the dominant current
+// draw on this board) is only powered up for the fraction of a second it
+// takes to sample it.
+func readGyroDutyCycled() (x, y, z int16, err error) {
+	if err = regWriteRetry(bmx055GyrAddr, bmx055GyrLPM1, bmx055GyrLPM1Normal, 5, 20*time.Millisecond); err != nil {
+		return
+	}
+	time.Sleep(bmx055GyrWakeSettle)
+
+	x, y, z, err = readGyro()
+
+	if e := regWriteRetry(bmx055GyrAddr, bmx055GyrLPM1, bmx055GyrLPM1Suspend, 5, 20*time.Millisecond); e != nil && err == nil {
+		err = e
+	}
 	return
 }
 
