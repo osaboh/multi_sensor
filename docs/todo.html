@@ -98,7 +98,7 @@
 
 <h2>整理・クリーンアップ</h2>
 <ul class="todo">
-<li><code>i2cscan_debug.go</code> と <code>main.go</code> 内の <code>scanI2C()</code> 呼び出しを削除する（I2Cアドレス確認用の一時デバッグコードで、全センサーのアドレス応答は確認済みのため役目を終えている）</li>
+<li class="done"><code>i2cscan_debug.go</code> と <code>main.go</code> 内の <code>scanI2C()</code> 呼び出しを削除する（2026-08-17完了）: <code>i2cscan_debug.go</code>を削除し、<code>main.go</code>から呼び出しも削除。ビルド・実機でのadvertising動作を確認済み</li>
 <li><code>docs/ble-protocol-reference.md</code> の先頭ステータスを更新する（現在「Draft。ファームウェア未実装」のままだが、実際にはGATTプロファイルは実装・実機検証済み）</li>
 </ul>
 

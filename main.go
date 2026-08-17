@@ -79,9 +79,6 @@ func main() {
 	startIOService()
 	startLPS22HBService()
 	startHDC2010Service()
-
-	scanI2C() // DEBUG
-
 	startBMX055Service()
 
 	logLine("advertising...")

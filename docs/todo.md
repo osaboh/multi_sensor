@@ -8,7 +8,7 @@
 
 ## 整理・クリーンアップ
 
-- [ ] `i2cscan_debug.go` と `main.go` 内の `scanI2C()` 呼び出しを削除する（I2Cアドレス確認用の一時デバッグコードで、全センサーのアドレス応答は確認済みのため役目を終えている）
+- [x] ~~`i2cscan_debug.go` と `main.go` 内の `scanI2C()` 呼び出しを削除する~~（2026-08-17完了）: `i2cscan_debug.go`を削除し、`main.go`から呼び出しも削除。ビルド・実機でのadvertising動作を確認済み
 - [ ] `docs/ble-protocol-reference.md` の先頭ステータスを更新する（現在「Draft。ファームウェア未実装」のままだが、実際にはGATTプロファイルは実装・実機検証済み）
 
 ## 設計・仕様が必要
