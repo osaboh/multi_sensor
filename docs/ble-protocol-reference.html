@@ -16,6 +16,8 @@
     --accent: #2563eb;
     --status-bg: #fff7e6;
     --status-border: #e6b800;
+    --ok-bg: #eafaf0;
+    --ok-border: #2fae60;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -28,6 +30,8 @@
       --accent: #6ea8fe;
       --status-bg: #2a2410;
       --status-border: #8a7000;
+      --ok-bg: #16241c;
+      --ok-border: #3fbd76;
     }
   }
   body {
@@ -69,6 +73,13 @@
     margin: 1rem 0;
     font-size: 0.95rem;
   }
+  .ok {
+    background: var(--ok-bg);
+    border-left: 4px solid var(--ok-border);
+    padding: 0.8em 1em;
+    margin: 1rem 0;
+    font-size: 0.95rem;
+  }
   .note {
     color: var(--muted);
     font-size: 0.9rem;
@@ -94,9 +105,9 @@
 
 <h1>BLEプロトコル仕様書 — MultiSensor Board</h1>
 
-<div class="status">
-<strong>ステータス: Draft。2026-08-16時点でファームウェア未実装（設計フェーズ）。</strong><br>
-本書は今後ファームウェアが実装する予定のプロトコルの仕様であり、クライアント（スマホアプリ、PCツール等）を<strong>ソースコードを読まずに本書だけを見て実装できること</strong>を目的とする。ファームウェア実装時にこの仕様と差異が出た場合は本書を更新すること。
+<div class="ok">
+<strong>ステータス: 実装済み・実機検証済み（2026-08-17時点）。</strong><br>
+本書に記載の全Service/Characteristicはファームウェアに実装済みで、BLE接続してのRead/Notify/Write動作を実機（<code>tools/gatt_verify.py</code>, <code>tools/write_test.py</code>）で確認している。クライアント（スマホアプリ、PCツール等）を<strong>ソースコードを読まずに本書だけを見て実装できること</strong>を目的とする。ファームウェアを変更してこの仕様と差異が出た場合は本書も追従して更新すること。
 </div>
 
 <h2>概要</h2>
