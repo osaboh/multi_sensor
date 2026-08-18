@@ -47,13 +47,13 @@ func startHDC2010Service() {
 	}()
 }
 
-// readHDC2010 triggers a one-shot temperature+humidity measurement and reads
-// the result, mirroring adv_env/device.ino's measureHumidity().
+// readHDC2010はワンショットの温度+湿度測定をトリガーし結果を読み取る。
+// adv_env/device.inoのmeasureHumidity()に相当する。
 func readHDC2010() (temperatureC, humidityPct float64, err error) {
 	if err = regWrite(hdc2010Addr, hdc2010ConfigAMM, 0x00); err != nil { // AMM off
 		return
 	}
-	if err = regWrite(hdc2010Addr, hdc2010MeasConfig, 0x01); err != nil { // start measurement
+	if err = regWrite(hdc2010Addr, hdc2010MeasConfig, 0x01); err != nil { // 測定開始
 		return
 	}
 	for {
@@ -61,7 +61,7 @@ func readHDC2010() (temperatureC, humidityPct float64, err error) {
 		if err = regRead(hdc2010Addr, hdc2010MeasConfig, status[:]); err != nil {
 			return
 		}
-		if status[0]&0x01 == 0x00 { // measurement complete
+		if status[0]&0x01 == 0x00 { // 測定完了
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

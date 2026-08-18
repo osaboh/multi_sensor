@@ -17,22 +17,23 @@ var (
 	swSideCharUUID = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x12, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
 )
 
-// Buzzer state, updated by the WriteEvent callback (which runs from
-// interrupt context — see docs/debug-log-bmx055-wake.md) and consumed by the
-// always-running buzzWorker goroutine below. WriteEvent must never spawn a
-// goroutine itself (that allocates a new stack, which panics with "heap
-// alloc in interrupt"); it only ever does plain word-sized writes here.
+// ブザーの状態。WriteEventコールバック（割込みコンテキストで実行される
+// — docs/debug-log-bmx055-wake.md参照）から更新され、下の常駐buzzWorker
+// ゴルーチンが消費する。WriteEventはゴルーチンを起動してはならない
+// （新しいスタックを確保することになり「heap alloc in interrupt」で
+// パニックする）。ここでは単純なワード単位の書き込みのみ行う。
 var (
 	buzzerRequestedMs uint16
 	buzzerRequestGen  uint32
 )
 
-// Buzzer tone frequency. Previously bit-banged via GPIO toggling in a
-// software loop (time.Sleep jitter under BLE/goroutine contention made the
-// tone sound "muddy"); now driven by the nRF52840's hardware PWM peripheral
-// for a jitter-free square wave. Any GPIO pin can be routed to a PWM channel
-// (PSEL.OUT is software-configurable, not fixed per pin), so BUZZER_PIN
-// needed no change.
+// ブザーの鳴動周波数。以前はソフトウェアループでGPIOをトグルするビット
+// バンギング方式だったが（BLEスタック等とのゴルーチン競合による
+// time.Sleepのジッターで音が「濁って」聞こえる問題があった）、現在は
+// nRF52840のハードウェアPWMペリフェラルでジッターフリーな方形波を生成
+// している。任意のGPIOピンをPWMチャンネルにルーティングできる
+// （PSEL.OUTはピン固定ではなくソフトウェアで設定可能）ため、
+// BUZZER_PINの変更は不要だった。
 const buzzerFreqHz = 500
 
 var (
@@ -111,7 +112,7 @@ func startIOService() {
 	go buzzWorker()
 }
 
-// setLED drives an active-low LED (Low = on, High = off).
+// setLEDはactive-lowのLEDを駆動する（Low=点灯、High=消灯）。
 func setLED(pin machine.Pin, on bool) {
 	if on {
 		pin.Low()
@@ -120,7 +121,7 @@ func setLED(pin machine.Pin, on bool) {
 	}
 }
 
-// switchPressed reads an active-low tactile switch (pressed = Low).
+// switchPressedはactive-lowのタクトスイッチを読み取る（押下時=Low）。
 func switchPressed(pin machine.Pin) bool {
 	return !pin.Get()
 }
@@ -148,9 +149,10 @@ func pollSwitches(swTopChar, swSideChar *bluetooth.Characteristic) {
 	}
 }
 
-// buzzWorker is the single, always-running goroutine that actually drives
-// the buzzer. It polls buzzerRequestGen (same pattern as pollSwitches)
-// instead of the WriteEvent callback spawning a fresh goroutine per write.
+// buzzWorkerは実際にブザーを駆動する、唯一の常駐ゴルーチンである。
+// WriteEventコールバックが書き込みのたびに新しいゴルーチンを起動する
+// のではなく、buzzerRequestGenをポーリングする（pollSwitchesと同じ
+// パターン）。
 func buzzWorker() {
 	var servedGen uint32
 	for {
@@ -168,9 +170,9 @@ func buzzWorker() {
 	}
 }
 
-// buzz drives the passive piezo buzzer via hardware PWM (50% duty square
-// wave at buzzerFreqHz; 0% duty is silent) for the requested duration,
-// unless superseded by a newer write.
+// buzzはパッシブ型圧電ブザーをハードウェアPWM経由で駆動する
+// （buzzerFreqHzでDuty比50%の方形波、Duty比0%で無音）。指定時間鳴動
+// させるが、新しい書き込みがあれば処理を打ち切る。
 func buzz(gen uint32, durationMs uint16) {
 	buzzerPWM.Set(buzzerCh, buzzerPWM.Top()/2)
 	deadline := time.Now().Add(time.Duration(durationMs) * time.Millisecond)

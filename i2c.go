@@ -2,9 +2,9 @@ package main
 
 import "sync"
 
-// i2cMu serializes access to the shared I2C bus: LPS22HB, HDC2010, and
-// BMX055 are each polled from their own goroutine, and machine.I2C.Tx has no
-// built-in mutual exclusion.
+// i2cMuは共有I2Cバスへのアクセスを直列化する: LPS22HB、HDC2010、BMX055は
+// それぞれ独自のゴルーチンからポーリングされており、machine.I2C.Txには
+// 排他制御が組み込まれていないため。
 var i2cMu sync.Mutex
 
 func regWrite(addr uint8, reg uint8, value uint8) error {

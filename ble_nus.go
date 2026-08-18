@@ -16,7 +16,7 @@ func startNUSService() {
 				Handle: &rxChar,
 				UUID:   bluetooth.CharacteristicUUIDUARTRX,
 				Flags:  bluetooth.CharacteristicWritePermission | bluetooth.CharacteristicWriteWithoutResponsePermission,
-				// Command protocol not yet defined (docs/ble-protocol-reference.md); writes are ignored for now.
+				// コマンドプロトコル未定義（docs/ble-protocol-reference.md）。現状は書き込みを無視する。
 			},
 			{
 				Handle: &nusTXChar,
@@ -28,8 +28,8 @@ func startNUSService() {
 	nusReady = true
 }
 
-// logLine sends a line of text to the NUS TX characteristic (once the
-// service is registered), in addition to the local debug console.
+// logLineは、ローカルのデバッグコンソールに加えて、NUS TXキャラクタ
+// リスティック（サービス登録済みの場合）にも1行分のテキストを送信する。
 func logLine(s string) {
 	println(s)
 	if nusReady {

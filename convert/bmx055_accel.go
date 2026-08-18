@@ -1,17 +1,18 @@
 package convert
 
-// DecodeAccel12Bit converts a raw accelerometer axis register pair (LSB/MSB) into
-// the signed 12-bit ADC count. The register stores the 12-bit value left-shifted 4
-// bits (the low nibble is reserved/new-data-flag), so recovering it is an arithmetic
-// right shift on the reassembled int16.
+// DecodeAccel12Bitは、加速度センサーの軸レジスタペア（LSB/MSB）を符号付き
+// 12ビットADCカウント値に変換する。レジスタは12ビット値を4ビット左シフト
+// して格納している（下位ニブルは予約/new-dataフラグ）ため、復元には
+// 再構成したint16に対する算術右シフトを行う。
 func DecodeAccel12Bit(lsb, msb byte) int16 {
 	raw16 := int16(uint16(lsb) | uint16(msb)<<8)
 	return raw16 >> 4
 }
 
-// EncodeAccel packs the raw (uncalibrated) accelerometer ADC counts into the BLE
-// characteristic byte layout (a0b40141): int16 LE x, y, z. ±2g range, 0.98 mg/LSB;
-// physical-unit conversion is left to the client.
+// EncodeAccelは、加速度センサーの生（未較正）ADCカウント値をBLE
+// キャラクタリスティックのバイトレイアウト（a0b40141）に詰める:
+// int16 LE x, y, z。±2gレンジ、0.98 mg/LSB。物理値への変換は
+// クライアント側の責務とする。
 func EncodeAccel(x, y, z int16) [6]byte {
 	ux, uy, uz := uint16(x), uint16(y), uint16(z)
 	return [6]byte{

@@ -39,7 +39,7 @@ private val SeriesColors = listOf(
     Color(0xFFEB6834), // Y
     Color(0xFF1BAF7A), // Z
 )
-private val AxisColor = Color(0x33808080) // recessive gridline/crosshair
+private val AxisColor = Color(0x33808080) // 控えめなグリッド線/クロスヘア
 
 // 加速度・ジャイロの直近履歴をスクロール式ラインチャートで表示する。X/Y/Zは固定の
 // カテゴリカル配色、凡例は常に表示（テキストラベルは色に依存しない識別手段）。

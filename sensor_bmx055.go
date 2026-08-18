@@ -28,18 +28,16 @@ const (
 	bmx055GyrDX    = 0x02
 
 	bmx055GyrLPM1Normal  = 0x00
-	bmx055GyrLPM1Suspend = 0x80 // LPM1 bit7 (suspend), see BMG160 datasheet register 0x11
+	bmx055GyrLPM1Suspend = 0x80 // LPM1 bit7（suspend）、BMG160データシートのレジスタ0x11参照
 
-	// Wake-up time from Suspend mode to a settled measurement. The BMG160
-	// datasheet's twusm spec (30ms typical, page 8) proved insufficient in
-	// practice: with duty-cycling enabled, the gyro's Y axis specifically
-	// showed wild swings (-34 to +666 deg/s while stationary) that X/Z did
-	// not, indicating Y's resonator loop needed longer to settle after
-	// waking from Suspend than the datasheet's typical value suggests.
-	// Bisected empirically on real hardware: 30/50ms unstable, 75ms
-	// borderline (occasional outliers), 90ms and 100ms both fully stable
-	// (Y axis noise ~1-5 deg/s, matching X/Z). 90ms adopted as the minimum
-	// confirmed-stable value.
+	// Suspendモードから測定値が安定するまでの起床時間。BMG160データシートの
+	// twusm仕様（30ms typical、8ページ）は実際には不十分だった: duty-cycling
+	// 有効時、静止状態でもジャイロY軸だけが-34〜+666°/sと大きく暴れ、X/Zは
+	// 暴れなかった。これはY軸の共振ループがSuspendからの復帰後、データシートの
+	// typical値が示唆するより長く安定化に時間を要することを示している。実機で
+	// 二分探索した結果: 30/50msは不安定、75msは境界（時々外れ値あり）、90msと
+	// 100msはいずれも完全に安定（Y軸ノイズが約1-5°/sでX/Zと同等）。90msを
+	// 安定性が確認できた最小値として採用した。
 	bmx055GyrWakeSettle = 90 * time.Millisecond
 
 	bmx055MagPwrCntl1 = 0x4B
@@ -47,7 +45,7 @@ const (
 	bmx055MagDX       = 0x42
 	bmx055MagRHall    = 0x48
 
-	// Magnetometer trim ("dig_*") register addresses, BMM050-compatible.
+	// 磁力センサーのトリム（"dig_*"）レジスタアドレス、BMM050互換。
 	bmm050DigX1    = 0x5D
 	bmm050DigY1    = 0x5E
 	bmm050DigZ4LSB = 0x62
@@ -60,10 +58,9 @@ const (
 	bmm050DigXY2   = 0x70
 	bmm050DigXY1   = 0x71
 
-	// Notify interval bounds for the BMX055 loop (accel+gyro+mag share one
-	// goroutine/sleep). Floor keeps headroom above the gyro's 90ms
-	// duty-cycle wake time plus I2C read overhead for all three sensors;
-	// ceiling is an arbitrary sane upper bound.
+	// BMX055ループ（加速度+ジャイロ+磁力が1つのゴルーチン/sleepを共有）の
+	// Notify間隔の範囲。下限はジャイロのduty-cycle起床時間90ms+3センサー分の
+	// I2C読み取りオーバーヘッドに余裕を持たせた値。上限は妥当な範囲で任意に設定。
 	bmx055IntervalMinMs = 150
 	bmx055IntervalMaxMs = 5000
 )
@@ -76,10 +73,10 @@ var (
 	bmx055IntervalCharUUID = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x44, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
 )
 
-// bmx055IntervalMs is the accel+gyro+mag loop's sleep interval, in
-// milliseconds. Written from the Interval characteristic's WriteEvent
-// (interrupt context: atomic store only, no allocation), read by the
-// service goroutine every cycle.
+// bmx055IntervalMsは加速度+ジャイロ+磁力ループのsleep間隔（ミリ秒）。
+// Intervalキャラクタリスティックの WriteEvent（割込みコンテキスト:
+// atomicなストアのみ、allocationなし）から書き込まれ、サービスの
+// ゴルーチンが毎サイクル読み取る。
 var bmx055IntervalMs uint32 = 1000
 
 func startBMX055Service() {
@@ -111,7 +108,7 @@ func startBMX055Service() {
 			},
 			{
 				UUID:  bmx055IntervalCharUUID,
-				Value: []byte{0xE8, 0x03}, // 1000ms LE, matches the default above
+				Value: []byte{0xE8, 0x03}, // 1000ms LE、上のデフォルト値と一致
 				Flags: bluetooth.CharacteristicWritePermission | bluetooth.CharacteristicWriteWithoutResponsePermission,
 				WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
 					if offset != 0 || len(value) != 2 {
@@ -148,11 +145,11 @@ func startBMX055Service() {
 	}()
 }
 
-// wakeBMX055 brings the accelerometer and gyroscope out of the deep-suspend
-// mode entered by adv_env/device.ino's suspendPeripheralDevices() equivalent,
-// configures ±2g / ±2000°/s range (matching the sensitivities documented in
-// docs/ble-protocol-reference.md), and powers up the magnetometer.
-// Register values sourced from https://github.com/kriswiner/BMX-055.
+// wakeBMX055は、adv_env/device.inoのsuspendPeripheralDevices()相当の処理で
+// 入ったdeep-suspendモードから加速度センサーとジャイロを復帰させ、
+// ±2g / ±2000°/sレンジを設定し（docs/ble-protocol-reference.md記載の
+// 感度と一致）、磁力センサーを起動する。レジスタ値は
+// https://github.com/kriswiner/BMX-055 を参照した。
 func wakeBMX055() error {
 	steps := []struct {
 		name string
@@ -181,20 +178,20 @@ func wakeBMX055() error {
 		}
 	}
 
-	// The gyroscope is duty-cycled (see readGyroDutyCycled): woken only for
-	// the moment it takes to read a sample, otherwise left in Suspend mode
-	// (25µA vs. 5mA in Normal mode, per the BMG160 datasheet). Configuration
-	// registers survive Suspend, so this only needs to happen once here.
+	// ジャイロはduty-cycle制御されている（readGyroDutyCycled参照）:
+	// サンプル読み取りの瞬間だけ起こし、それ以外はSuspendモードのままにする
+	// （BMG160データシートによればNormalモードの5mAに対しSuspendは25µA）。
+	// 設定レジスタはSuspend中も保持されるため、ここで一度設定すればよい。
 	if err := regWriteRetry(bmx055GyrAddr, bmx055GyrLPM1, bmx055GyrLPM1Suspend, 5, 20*time.Millisecond); err != nil {
 		return errors.New("gyr suspend: " + err.Error())
 	}
 	return nil
 }
 
-// regWriteRetry retries a register write a few times with a delay between
-// attempts. Needed right after the magnetometer's soft-reset write
-// (PWR_CNTL1=0x82): the chip briefly NACKs I2C while the reset completes,
-// and a single fixed delay proved too short/unreliable in practice.
+// regWriteRetryはレジスタ書き込みを、試行間に待機を挟みながら数回リトライ
+// する。磁力センサーのソフトリセット書き込み（PWR_CNTL1=0x82）の直後に
+// 必要: リセット完了までの間チップが短時間I2Cをネガティブアクノリッジ
+// (NACK)するため、固定の単発待機だけでは短すぎて不安定だった。
 func regWriteRetry(addr, reg, value uint8, attempts int, delay time.Duration) error {
 	var err error
 	for i := 0; i < attempts; i++ {
@@ -217,11 +214,10 @@ func readAccel() (x, y, z int16, err error) {
 	return
 }
 
-// readGyroDutyCycled wakes the gyroscope from Suspend mode, waits out its
-// datasheet-specified wake-up time, takes a reading, and returns it to
-// Suspend — so the gyro (5mA in Normal mode, by far the dominant current
-// draw on this board) is only powered up for the fraction of a second it
-// takes to sample it.
+// readGyroDutyCycledはジャイロをSuspendモードから起こし、
+// （実測で確認した）起床時間だけ待ってから読み取り、再びSuspendへ戻す。
+// これにより、このボード上で圧倒的に電流消費が大きいジャイロ
+// （Normalモードで5mA）は、サンプリングに必要な一瞬だけ電源が入る。
 func readGyroDutyCycled() (x, y, z int16, err error) {
 	if err = regWriteRetry(bmx055GyrAddr, bmx055GyrLPM1, bmx055GyrLPM1Normal, 5, 20*time.Millisecond); err != nil {
 		return

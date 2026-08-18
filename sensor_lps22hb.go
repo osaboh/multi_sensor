@@ -50,10 +50,10 @@ func startLPS22HBService() {
 	}()
 }
 
-// readLPS22HB triggers a one-shot pressure+temperature measurement and reads
-// the result, mirroring adv_env/device.ino's measurePressure().
+// readLPS22HBはワンショットの気圧+温度測定をトリガーし結果を読み取る。
+// adv_env/device.inoのmeasurePressure()に相当する。
 func readLPS22HB() (pressureHPa, temperatureC float64, err error) {
-	if err = regWrite(lps22hbAddr, lps22hbCtrlReg2, 0x11); err != nil { // one-shot enable
+	if err = regWrite(lps22hbAddr, lps22hbCtrlReg2, 0x11); err != nil { // ワンショット有効化
 		return
 	}
 	const maxAttempts = 20
@@ -63,7 +63,7 @@ func readLPS22HB() (pressureHPa, temperatureC float64, err error) {
 		if err = regRead(lps22hbAddr, lps22hbStatus, status[:]); err != nil {
 			return
 		}
-		if status[0]&0x03 == 0x03 { // T_DA and P_DA both ready
+		if status[0]&0x03 == 0x03 { // T_DA、P_DAともにデータ準備完了
 			ready = true
 			break
 		}

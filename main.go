@@ -53,17 +53,19 @@ func main() {
 	must("enable BLE stack", adapter.Enable())
 
 	adapter.SetConnectHandler(func(device bluetooth.Device, connected bool) {
-		// This callback runs from interrupt context (SoftDevice BLE event
-		// dispatch): no heap allocation allowed here, so no device.Address
-		// formatting / string concatenation / logLine — see
-		// docs/debug-log-bmx055-wake.md ("heap alloc in interrupt").
+		// このコールバックは割込みコンテキスト（SoftDeviceのBLEイベント
+		// ディスパッチ）で実行される: heap allocationは一切禁止のため、
+		// device.Addressのフォーマットや文字列連結、logLineは使えない
+		// — docs/debug-log-bmx055-wake.md（「heap alloc in interrupt」）
+		// 参照。
 		//
-		// No action needed on disconnect: the library's own event handler
-		// (adapter_nrf528xx-*.go) already calls sd_ble_gap_adv_start to
-		// resume advertising before this callback even runs. Previously this
-		// called cancel() to unblock main() and return, which ran
-		// `defer adv.Stop()` right after the library had just restarted
-		// it — advertising never came back after the first disconnect.
+		// 切断時に何もする必要はない: ライブラリ自身のイベントハンドラ
+		// （adapter_nrf528xx-*.go）が、このコールバックが呼ばれる前に
+		// 既にsd_ble_gap_adv_startでadvertisingを再開している。以前は
+		// ここでcancel()を呼んでmain()のブロックを解除しreturnさせて
+		// いたが、それによりライブラリが再開した直後に
+		// `defer adv.Stop()`が実行されてしまい、最初の切断以降二度と
+		// advertisingが戻らなくなっていた。
 		if connected {
 			println("device connected")
 			return
