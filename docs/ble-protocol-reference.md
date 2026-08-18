@@ -115,11 +115,26 @@ Service UUID: `a0b40140-926d-4d61-98df-8c5c62ee53b3`
 
 | Characteristic | UUID | Properties | サイズ | Notifyタイミング |
 |---|---|---|---|---|
-| Accelerometer | `a0b40141-...` | Read, Notify | 6 byte | 周期的（1秒間隔） |
-| Gyroscope | `a0b40142-...` | Read, Notify | 6 byte | 周期的（1秒間隔） |
-| Magnetometer | `a0b40143-...` | Read, Notify | 12 byte | 周期的（1秒間隔） |
+| Accelerometer | `a0b40141-...` | Read, Notify | 6 byte | 周期的（デフォルト1秒間隔、Intervalで変更可） |
+| Gyroscope | `a0b40142-...` | Read, Notify | 6 byte | 周期的（同上） |
+| Magnetometer | `a0b40143-...` | Read, Notify | 12 byte | 周期的（同上） |
+| Interval | `a0b40144-...` | Write, Write Without Response | 2 byte | — |
 
 加速度・ジャイロは**未較正の生カウント値**（クライアント側で物理値に変換）、磁力は**ファームウェア側で工場トリム値による較正済みのµT値**を返す。この非対称は意図的（詳細: 磁力の較正はBoschの専用アルゴリズムが必須で単純な倍率変換が不可能なため）。
+
+### 5.0 Interval (`a0b40144`)
+
+加速度・ジャイロ・磁力は同一ループで駆動されており、Notify間隔（＝ループのSleep時間）を共通で変更できる。
+
+| offset | 型 | フィールド | 単位/範囲 |
+|---|---|---|---|
+| 0 | uint16 (LE) | interval_ms | ミリ秒。150〜5000の範囲外は自動的にクランプされる |
+
+**実測周期の注意**: 実際のNotify周期は、書き込んだinterval_msに加えてジャイロduty-cyclingの起床時間（90ms）とI2C読み取り時間が上乗せされる（実測で+90〜105ms程度）。例えばinterval_ms=200を書き込んでも実際の周期は約285〜300msになる。クライアント側は各Notifyの受信タイムスタンプを見て周期を判断すること（`interval_ms`をそのまま周期として仮定しない）。
+
+### 例: 更新間隔を200msに変更
+
+- `a0b40144`に uint16 LE で`0x00C8`(=200) → バイト列 `C8 00` を書き込み
 
 ### 5.1 Accelerometer (`a0b40141`)
 
