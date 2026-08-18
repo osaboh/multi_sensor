@@ -27,14 +27,43 @@ var (
 	buzzerRequestGen  uint32
 )
 
-// ブザーの鳴動周波数。以前はソフトウェアループでGPIOをトグルするビット
+// ブザーの鳴動方式。以前はソフトウェアループでGPIOをトグルするビット
 // バンギング方式だったが（BLEスタック等とのゴルーチン競合による
 // time.Sleepのジッターで音が「濁って」聞こえる問題があった）、現在は
 // nRF52840のハードウェアPWMペリフェラルでジッターフリーな方形波を生成
 // している。任意のGPIOピンをPWMチャンネルにルーティングできる
 // （PSEL.OUTはピン固定ではなくソフトウェアで設定可能）ため、
 // BUZZER_PINの変更は不要だった。
-const buzzerFreqHz = 500
+//
+// 松下電工（現Panasonic）の「ホロホロ」チャイムに近づけるため、2周波数を
+// 往復するワーブルをまず試したが「近くない」と判定された。実際の「ホロ
+// ホロ」音を解析した結果に基づき、単一の固定周波数を鳴らして止める、を
+// 繰り返すゲーティング（オン/オフ断続）方式に変更した（周波数変調では
+// なく振幅変調が実際の音の特徴だった）。当初の解析値は約2304.5Hz・
+// 20ms鳴動/43ms休止だったが、実機で聞いた結果「前より近いが、全体を
+// 低音・低速に」とのフィードバックを受け、周波数を約1300Hzへ、
+// オン/オフ時間をおよそ1.5倍に調整した。
+// buzzerOnMs/buzzerOffMs/buzzerFreqHzは実機での試聴により確定した値
+// （松下電工「ホロホロ」チャイムに近い音として1000Hz、オン30ms/オフ65ms
+// のゲーティングパターンを採用）。
+//
+// 【教訓】この値を試聴で追い込む過程で、音程チューニング用に別
+// Characteristicを新設したところSoftDeviceのGATT属性テーブル容量を
+// 使い切り「panic: failed to add BMX055 service: no memory for
+// operation」で起動時にパニックする不具合を起こした（advertisingは既に
+// 開始済みだったため接続はできてしまい、一見Android側のGATTキャッシュ
+// 問題に見えて誤診断した — RTTログでのpanic確認が有効だった）。以後、
+// 一時的な調整用途であっても新規Characteristicの追加はGATT容量を
+// 圧迫するため避け、既存Characteristicのペイロードを一時的に拡張する
+// 方針にした（このコミットで確定値に戻し、ペイロードも2バイト固定に
+// 戻した）。
+const (
+	buzzerOnMs   = 30
+	buzzerOffMs  = 65
+	buzzerFreqHz = 1000
+)
+
+const buzzerPeriodNS = 1_000_000_000 / buzzerFreqHz
 
 var (
 	buzzerPWM = machine.PWM0
@@ -42,7 +71,7 @@ var (
 )
 
 func initBuzzerPWM() {
-	must("buzzer pwm configure", buzzerPWM.Configure(machine.PWMConfig{Period: 1_000_000_000 / buzzerFreqHz}))
+	must("buzzer pwm configure", buzzerPWM.Configure(machine.PWMConfig{Period: buzzerPeriodNS}))
 	ch, err := buzzerPWM.Channel(buzzer)
 	must("buzzer pwm channel", err)
 	buzzerCh = ch
@@ -78,6 +107,7 @@ func startIOService() {
 				},
 			},
 			{
+				// 2バイト（uint16 LE 鳴動時間ms）。0=即時停止。
 				UUID:  buzzerCharUUID,
 				Value: []byte{0x00, 0x00},
 				Flags: bluetooth.CharacteristicWritePermission | bluetooth.CharacteristicWriteWithoutResponsePermission,
@@ -85,7 +115,7 @@ func startIOService() {
 					if offset != 0 || len(value) != 2 {
 						return
 					}
-					buzzerRequestedMs = binary.LittleEndian.Uint16(value)
+					buzzerRequestedMs = binary.LittleEndian.Uint16(value[0:2])
 					buzzerRequestGen++
 					if buzzerRequestedMs == 0 {
 						buzzerPWM.Set(buzzerCh, 0)
@@ -170,17 +200,20 @@ func buzzWorker() {
 	}
 }
 
-// buzzはパッシブ型圧電ブザーをハードウェアPWM経由で駆動する
-// （buzzerFreqHzでDuty比50%の方形波、Duty比0%で無音）。指定時間鳴動
+// buzzはパッシブ型圧電ブザーをハードウェアPWM経由で駆動する。固定周波数
+// （buzzerPeriodNS）をbuzzerOnMs鳴らしてはbuzzerOffMs止める、を繰り返し
+// 「ホロホロ」チャイムのオン/オフ断続パターンを再現する。指定時間鳴動
 // させるが、新しい書き込みがあれば処理を打ち切る。
 func buzz(gen uint32, durationMs uint16) {
-	buzzerPWM.Set(buzzerCh, buzzerPWM.Top()/2)
 	deadline := time.Now().Add(time.Duration(durationMs) * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if gen != buzzerRequestGen {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		buzzerPWM.Set(buzzerCh, buzzerPWM.Top()/2)
+		time.Sleep(buzzerOnMs * time.Millisecond)
+		buzzerPWM.Set(buzzerCh, 0)
+		time.Sleep(buzzerOffMs * time.Millisecond)
 	}
 	if gen == buzzerRequestGen {
 		buzzerPWM.Set(buzzerCh, 0)

@@ -5,21 +5,25 @@
 ## バグ
 
 - [x] ~~切断すると二度と再接続できなくなる~~（2026-08-17発見・同日修正済み）: `main.go`が`SetConnectHandler`の切断イベントで`cancel()`を呼び`main()`をreturnさせ`defer adv.Stop()`を実行していたのが原因。実は`tinygo.org/x/bluetooth`のライブラリ自体が切断時に`sd_ble_gap_adv_start`でadvertisingを自動再開する処理を既に持っており（`adapter_nrf528xx-peripheral.go`/`-full.go`）、アプリ側が余計にそれを止めていただけだった。`cancel()`呼び出しと`context`の使用を削除し、`main()`の末尾を`select{}`で永久ブロックする形に変更。接続→切断を2回連続で行い再接続できることを実機確認済み
+- [x] ~~LED以外の制御・Notifyが効かなくなる（2回目、Bluetooth OFF→ONでも改善せず）~~（2026-08-18発見・2026-08-19修正済み）: ブザー音程チューニング用に追加した専用Characteristic（`buzzerFreqCharUUID`）がSoftDeviceのGATT属性テーブル容量（既定1408バイト、詳細は`docs/gatt-attr-table-size-notes.md`）を使い切り、`panic: failed to add BMX055 service: no memory for operation`で起動時にパニックしていた。advertisingは既に開始済みだったため接続自体はできてしまい、Android側のGATTキャッシュ問題に見える誤診断を招きやすい症状だった（RTTバッファ直読みでpanicログを確認して特定）。恒久対応として専用Characteristicを廃止し、既存のBuzzer Characteristicのペイロードを一時的に拡張（2/4バイト可変長）してチューニングに使い、音程確定後（1000Hz・800ms）は2バイト固定の元の形に戻した。実機で全Notify・LED・ブザーの動作を再確認済み
 
 ## 整理・クリーンアップ
 
 - [x] ~~`i2cscan_debug.go` と `main.go` 内の `scanI2C()` 呼び出しを削除する~~（2026-08-17完了）: `i2cscan_debug.go`を削除し、`main.go`から呼び出しも削除。ビルド・実機でのadvertising動作を確認済み
 - [x] ~~`docs/ble-protocol-reference.md` の先頭ステータスを更新する~~（2026-08-17完了）: 「Draft・未実装」から「実装済み・実機検証済み」に更新
+- [ ] ブザー音程チューニング作業で残った解析用の一時ファイルを整理する: リポジトリ直下の`buzzer.wav`/`seg.wav`（実機録音）、`fft.py`/`fft2.py`（周波数解析スクリプト）、`rtt_debug.hex`（RTTデバッグビルド）が未追跡のまま残っている。音程が1000Hz・800msで確定した（2026-08-19）ため、今後の再解析で使う可能性が無ければ削除してよい
 
 ## 設計・仕様が必要
 
 - [ ] NUSのRXキャラクタリスティック（コマンド入力）のプロトコル設計。現状はログ出力(TX)のみ定義済みで、RX側は未定義のまま
 - [ ] セキュリティ（ペアリング/ボンディング）の要否を検討する。現状はオープンアクセス
+- [x] ~~GATT属性テーブルサイズの拡張案の調査~~（2026-08-19完了・保留）: TinyGoの`tinygo.org/x/bluetooth`（nRF52系アダプタ）は`sd_ble_cfg_set(BLE_GATTS_CFG_ATTR_TAB_SIZE, ...)`を呼んでおらず既定の1408バイトに固定されている。ライブラリのフォーク＋カスタムリンカスクリプト（SoftDevice用RAM領域の拡張）で拡張自体は可能だが、現在のCharacteristic数は既定枠に収まっており継続保守コストに見合わないため保留と判断。詳細・実装手順は`docs/gatt-attr-table-size-notes.md`参照。Characteristic新設が必要になった時点で再検討
 - [x] ~~電源管理・スリープモードの検討~~（2026-08-17完了・実装済み、2026-08-18 wake settle time修正）: ジャイロ(BMG160)が常時Normalモード(5mA)で支配的な電流消費要因だったため、`sensor_bmx055.go`に`readGyroDutyCycled()`を追加し、読み取り直前だけLPM1レジスタでNormalに起こし、読み取り後は即Suspend(25µA)へ戻す方式に変更。当初データシート記載のwake-up time 30msを採用したが、静止状態でもジャイロY軸が-34〜+666°/sに暴走するバグが判明し調査の結果、30msではY軸の共振ループが安定化しきらないことが根本原因と判明。実機で二分探索し90msで完全に安定することを確認、恒久値として採用（commit `523076a`）。加速度・磁気センサーは常時稼働のまま（今回は対象外）。CR2032想定でジャイロ平均電流は約473µA（当初見積もりの174µAから増加、常時5mAの約10倍省電力は維持）、全体の電池寿命は約6.5〜8.5日程度に改善見込み。実機でNotify正常確認済み（`make verify`）
 
 ## クライアント実装
 
-- [x] ~~`docs/ble-protocol-reference.md` を参照して、実際のクライアント（スマホアプリ or PCツール）を実装する~~（2026-08-18完了・随時機能追加中）: `client/android/`にAndroid(Kotlin+Compose)クライアントを実装。センサー5種のNotify表示（気圧/温度・湿度はセンサー名なしでまとめて表示、温度はLPS22HB/HDC2010の平均）、SW_TOP/SW_SIDEのON/OFF表示、加速度・ジャイロのスクロール式ラインチャート（タッチでクロスヘア+値ツールチップ）、LED緑/LED赤トグル、ブザースイッチ（300ms自動OFF）、BMX055更新間隔スライダー（150-5000ms、`a0b40144`）、明示的な切断ボタン（起動時自動接続は維持）に対応。実機で全機能の動作確認済み。NUS経由コマンドは未対応（設計: `docs/superpowers/specs/2026-08-17-android-client-design.md`、実装計画: `docs/superpowers/plans/2026-08-17-android-client.md`）
+- [x] ~~`docs/ble-protocol-reference.md` を参照して、実際のクライアント（スマホアプリ or PCツール）を実装する~~（2026-08-18完了・随時機能追加中）: `client/android/`にAndroid(Kotlin+Compose)クライアントを実装。センサー5種のNotify表示（気圧/温度・湿度はセンサー名なしでまとめて表示、温度はLPS22HB/HDC2010の平均）、SW_TOP/SW_SIDEのON/OFF表示、加速度・ジャイロのスクロール式ラインチャート（タッチでクロスヘア+値ツールチップ）、LED緑/LED赤トグル、ブザースイッチ、BMX055更新間隔スライダー（150-5000ms、`a0b40144`）、明示的な切断ボタン（起動時自動接続は維持）に対応。実機で全機能の動作確認済み。NUS経由コマンドは未対応（設計: `docs/superpowers/specs/2026-08-17-android-client-design.md`、実装計画: `docs/superpowers/plans/2026-08-17-android-client.md`）
+- [x] ~~ブザー音を松下電工「ホロホロ」チャイムに近づける~~（2026-08-19完了）: ソフトウェアのGPIOビットバンギングからnRF52840のハードウェアPWM駆動に変更（音の濁り解消）。実機での試聴フィードバックを重ねて周波数1000Hz・鳴動時間800ms・オン30ms/オフ65msのゲーティングパターンで確定。調整用に一時追加していたAndroid側チューニングUI（時間スライダー・音程チェックボックス10種）と関連コードは削除済み
 - [ ] 磁力センサー値からのコンパス方位表示（保留、2026-08-18検討）: ハードアイアン較正（オフセット除去）自体は実装可能で、クリーンな環境なら較正後5〜10°程度の精度が期待できる。ただし車・電車の車内という想定用途では、車体自体の磁気外乱・モーター負荷変動による時間変化・加減速時の加速度センサー汚染（傾き補正が乱れる）により実用的な精度が出ない可能性が高いため、実装を見送り
 
 ## 検証環境の整備

@@ -49,11 +49,11 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
         }
     }
 
-    // ブザーはファームウェア側で300ms後に自動停止する(Notifyでの状態通知はない)ため、
+    // ブザーはファームウェア側で800ms後に自動停止する(Notifyでの状態通知はない)ため、
     // スイッチの見た目も実機の鳴動時間に合わせて自動でOFFへ戻す。
     LaunchedEffect(buzzerOn) {
         if (buzzerOn) {
-            delay(300)
+            delay(800)
             buzzerOn = false
         }
     }
@@ -146,7 +146,7 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
                 checked = buzzerOn,
                 onCheckedChange = { on ->
                     buzzerOn = on
-                    bleClient.triggerBuzzer(if (on) 300 else 0)
+                    bleClient.triggerBuzzer(if (on) 800 else 0)
                 },
                 enabled = isConnected,
             )

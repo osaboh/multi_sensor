@@ -44,8 +44,8 @@ async def main(device_name: str) -> None:
         print("LED2 OFF")
         await client.write_gatt_char(LED2, bytes([0x00]), response=True)
 
-        print("Buzzer 300ms")
-        await client.write_gatt_char(BUZZER, struct.pack("<H", 300), response=True)
+        print("Buzzer 800ms")
+        await client.write_gatt_char(BUZZER, struct.pack("<H", 800), response=True)
         await asyncio.sleep(1)
 
         print("done, disconnecting")

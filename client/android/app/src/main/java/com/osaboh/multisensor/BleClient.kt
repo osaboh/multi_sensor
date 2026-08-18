@@ -137,6 +137,22 @@ class BleClient(private val context: Context) {
         gatt?.writeCharacteristic(char, byteArrayOf(value.toByte()), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
     }
 
+    // Androidの公開APIには存在しない隠しメソッド。OS側が端末ごとに保持している
+    // GATTデータベース（サービス/キャラクタリスティック/ハンドル）のキャッシュを
+    // 破棄させる。開発中にファームウェアのGATTレイアウトを変更すると、Bluetooth
+    // のOFF/ONだけでは消えないキャッシュにより「一部のキャラクタリスティックだけ
+    // 動かない」不具合が起きたため、接続のたびに呼んで常に最新のGATT構成を
+    // discoverServices()させる（副作用はなく、常時呼んで問題ない）。
+    private fun refreshGattCache(g: BluetoothGatt): Boolean {
+        return try {
+            val method = g.javaClass.getMethod("refresh")
+            method.invoke(g) as? Boolean ?: false
+        } catch (e: Exception) {
+            Log.w("BleClient", "GATTキャッシュのrefreshに失敗: ${e.message}")
+            false
+        }
+    }
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (_connectionState.value != ConnectionState.Scanning) return
@@ -157,6 +173,7 @@ class BleClient(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     _connectionState.value = ConnectionState.DiscoveringServices
+                    refreshGattCache(g)
                     g.discoverServices()
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
