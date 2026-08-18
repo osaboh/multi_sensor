@@ -38,6 +38,11 @@ func init() {
 	sw_side.Configure(machine.PinConfig{Mode: machine.PinInput})
 	buzzer.Configure(machine.PinConfig{Mode: machine.PinOutput})
 
+	// LEDはactive-low（Low=点灯）。Configure直後のGPIO出力はLowがデフォルトの
+	// ため、明示的にHigh(消灯)へ倒さないと起動直後に両LEDが点灯してしまう。
+	setLED(led1, false)
+	setLED(led2, false)
+
 	if err := i2c.Configure(machine.I2CConfig{SCL: SCL_PIN, SDA: SDA_PIN}); err != nil {
 		println("could not configure I2C:", err)
 		panic(err)
