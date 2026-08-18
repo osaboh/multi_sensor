@@ -28,9 +28,17 @@ const (
 	bmx055GyrLPM1Normal  = 0x00
 	bmx055GyrLPM1Suspend = 0x80 // LPM1 bit7 (suspend), see BMG160 datasheet register 0x11
 
-	// Wake-up time from Suspend mode to a settled measurement (twusm in the
-	// BMG160 datasheet, page 8): 30ms typical.
-	bmx055GyrWakeSettle = 30 * time.Millisecond
+	// Wake-up time from Suspend mode to a settled measurement. The BMG160
+	// datasheet's twusm spec (30ms typical, page 8) proved insufficient in
+	// practice: with duty-cycling enabled, the gyro's Y axis specifically
+	// showed wild swings (-34 to +666 deg/s while stationary) that X/Z did
+	// not, indicating Y's resonator loop needed longer to settle after
+	// waking from Suspend than the datasheet's typical value suggests.
+	// Bisected empirically on real hardware: 30/50ms unstable, 75ms
+	// borderline (occasional outliers), 90ms and 100ms both fully stable
+	// (Y axis noise ~1-5 deg/s, matching X/Z). 90ms adopted as the minimum
+	// confirmed-stable value.
+	bmx055GyrWakeSettle = 90 * time.Millisecond
 
 	bmx055MagPwrCntl1 = 0x4B
 	bmx055MagPwrCntl2 = 0x4C
