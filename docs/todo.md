@@ -19,7 +19,7 @@
 
 ## クライアント実装
 
-- [x] ~~`docs/ble-protocol-reference.md` を参照して、実際のクライアント（スマホアプリ or PCツール）を実装する~~（2026-08-18完了・v1実装済み）: `client/android/`にAndroid(Kotlin+Compose)クライアントを実装。センサー5種のNotify表示、LED1/LED2トグル、Buzzer(固定300ms)に対応。実機で動作確認済み（気圧/温度・温湿度・加速度・ジャイロ・磁力の値表示更新、LED1/LED2点灯、Buzzer鳴動、バックグラウンド/フォアグラウンド復帰後もクラッシュなし）。SW_TOP/SW_SIDE表示・NUS経由コマンド・自動再接続は未対応（設計: `docs/superpowers/specs/2026-08-17-android-client-design.md`、実装計画: `docs/superpowers/plans/2026-08-17-android-client.md`）
+- [x] ~~`docs/ble-protocol-reference.md` を参照して、実際のクライアント（スマホアプリ or PCツール）を実装する~~（2026-08-18完了・v1実装済み）: `client/android/`にAndroid(Kotlin+Compose)クライアントを実装。センサー5種のNotify表示、SW_TOP/SW_SIDEのON/OFF表示、LED1/LED2トグル、Buzzer(固定300ms)に対応。実機で動作確認済み（気圧/温度・温湿度・加速度・ジャイロ・磁力の値表示更新、スイッチON/OFF反映、LED1/LED2点灯、Buzzer鳴動、バックグラウンド/フォアグラウンド復帰後もクラッシュなし）。NUS経由コマンド・自動再接続は未対応（設計: `docs/superpowers/specs/2026-08-17-android-client-design.md`、実装計画: `docs/superpowers/plans/2026-08-17-android-client.md`）
 
 ## 検証環境の整備
 
