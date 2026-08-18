@@ -27,6 +27,27 @@ var (
 	buzzerRequestGen  uint32
 )
 
+// Buzzer tone frequency. Previously bit-banged via GPIO toggling in a
+// software loop (time.Sleep jitter under BLE/goroutine contention made the
+// tone sound "muddy"); now driven by the nRF52840's hardware PWM peripheral
+// for a jitter-free square wave. Any GPIO pin can be routed to a PWM channel
+// (PSEL.OUT is software-configurable, not fixed per pin), so BUZZER_PIN
+// needed no change.
+const buzzerFreqHz = 500
+
+var (
+	buzzerPWM = machine.PWM0
+	buzzerCh  uint8
+)
+
+func initBuzzerPWM() {
+	must("buzzer pwm configure", buzzerPWM.Configure(machine.PWMConfig{Period: 1_000_000_000 / buzzerFreqHz}))
+	ch, err := buzzerPWM.Channel(buzzer)
+	must("buzzer pwm channel", err)
+	buzzerCh = ch
+	buzzerPWM.Set(buzzerCh, 0)
+}
+
 func startIOService() {
 	var swTopChar, swSideChar bluetooth.Characteristic
 
@@ -66,7 +87,7 @@ func startIOService() {
 					buzzerRequestedMs = binary.LittleEndian.Uint16(value)
 					buzzerRequestGen++
 					if buzzerRequestedMs == 0 {
-						buzzer.Low()
+						buzzerPWM.Set(buzzerCh, 0)
 					}
 				},
 			},
@@ -85,6 +106,7 @@ func startIOService() {
 		},
 	}))
 
+	initBuzzerPWM()
 	go pollSwitches(&swTopChar, &swSideChar)
 	go buzzWorker()
 }
@@ -146,19 +168,19 @@ func buzzWorker() {
 	}
 }
 
-// buzz drives the passive piezo buzzer with a square wave (toggling the pin
-// produces the tone; holding it at a steady level would be silent) for the
-// requested duration, unless superseded by a newer write.
+// buzz drives the passive piezo buzzer via hardware PWM (50% duty square
+// wave at buzzerFreqHz; 0% duty is silent) for the requested duration,
+// unless superseded by a newer write.
 func buzz(gen uint32, durationMs uint16) {
+	buzzerPWM.Set(buzzerCh, buzzerPWM.Top()/2)
 	deadline := time.Now().Add(time.Duration(durationMs) * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if gen != buzzerRequestGen {
 			return
 		}
-		buzzer.Set(!buzzer.Get())
 		time.Sleep(time.Millisecond)
 	}
 	if gen == buzzerRequestGen {
-		buzzer.Low()
+		buzzerPWM.Set(buzzerCh, 0)
 	}
 }
