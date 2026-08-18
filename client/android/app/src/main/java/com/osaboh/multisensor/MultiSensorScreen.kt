@@ -62,6 +62,8 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
         Text(text = "磁力: " + (readings.mag?.let {
             "%.1f, %.1f, %.1f µT".format(it.xUt, it.yUt, it.zUt)
         } ?: "-"))
+        Text(text = "SW_TOP: " + (readings.swTop?.let { if (it) "ON" else "OFF" } ?: "-"))
+        Text(text = "SW_SIDE: " + (readings.swSide?.let { if (it) "ON" else "OFF" } ?: "-"))
 
         Spacer(modifier = Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

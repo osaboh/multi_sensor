@@ -33,6 +33,8 @@ data class SensorReadings(
     val accel: AccelReading? = null,
     val gyro: GyroReading? = null,
     val mag: MagReading? = null,
+    val swTop: Boolean? = null,
+    val swSide: Boolean? = null,
 )
 
 private val NOTIFY_CHARACTERISTICS: List<Pair<UUID, UUID>> = listOf(
@@ -41,6 +43,8 @@ private val NOTIFY_CHARACTERISTICS: List<Pair<UUID, UUID>> = listOf(
     BleUuids.BMX055_SERVICE to BleUuids.ACCEL_CHAR,
     BleUuids.BMX055_SERVICE to BleUuids.GYRO_CHAR,
     BleUuids.BMX055_SERVICE to BleUuids.MAG_CHAR,
+    BleUuids.IO_SERVICE to BleUuids.SW_TOP,
+    BleUuids.IO_SERVICE to BleUuids.SW_SIDE,
 )
 
 // BLEスキャン・GATT接続・Notify購読・Write を担当する。UIはconnectionState/
@@ -169,6 +173,12 @@ class BleClient(private val context: Context) {
                 }
                 BleUuids.MAG_CHAR -> if (value.size >= 12) {
                     _readings.update { it.copy(mag = decodeMag(value)) }
+                }
+                BleUuids.SW_TOP -> if (value.isNotEmpty()) {
+                    _readings.update { it.copy(swTop = value[0] == 0x01.toByte()) }
+                }
+                BleUuids.SW_SIDE -> if (value.isNotEmpty()) {
+                    _readings.update { it.copy(swSide = value[0] == 0x01.toByte()) }
                 }
             }
         }

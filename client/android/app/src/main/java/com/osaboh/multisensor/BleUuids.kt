@@ -10,6 +10,8 @@ object BleUuids {
     val LED1: UUID = UUID.fromString("a0b40101-926d-4d61-98df-8c5c62ee53b3")
     val LED2: UUID = UUID.fromString("a0b40102-926d-4d61-98df-8c5c62ee53b3")
     val BUZZER: UUID = UUID.fromString("a0b40103-926d-4d61-98df-8c5c62ee53b3")
+    val SW_TOP: UUID = UUID.fromString("a0b40111-926d-4d61-98df-8c5c62ee53b3")
+    val SW_SIDE: UUID = UUID.fromString("a0b40112-926d-4d61-98df-8c5c62ee53b3")
 
     val LPS22HB_SERVICE: UUID = UUID.fromString("a0b40120-926d-4d61-98df-8c5c62ee53b3")
     val LPS22HB_CHAR: UUID = UUID.fromString("a0b40121-926d-4d61-98df-8c5c62ee53b3")
