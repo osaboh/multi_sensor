@@ -82,6 +82,7 @@ class BleClient(private val context: Context) {
     private var ledChar1: BluetoothGattCharacteristic? = null
     private var ledChar2: BluetoothGattCharacteristic? = null
     private var buzzerChar: BluetoothGattCharacteristic? = null
+    private var bmx055IntervalChar: BluetoothGattCharacteristic? = null
     private var notifyIndex = 0
 
     fun startScan() {
@@ -102,6 +103,27 @@ class BleClient(private val context: Context) {
         val characteristic = buzzerChar ?: return
         val value = byteArrayOf((durationMs and 0xFF).toByte(), ((durationMs shr 8) and 0xFF).toByte())
         gatt?.writeCharacteristic(characteristic, value, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    }
+
+    // ファームウェア側で150〜5000msにクランプされる(docs/ble-protocol-reference.md)。
+    fun setBmx055IntervalMs(intervalMs: Int) {
+        val characteristic = bmx055IntervalChar ?: return
+        val value = byteArrayOf((intervalMs and 0xFF).toByte(), ((intervalMs shr 8) and 0xFF).toByte())
+        gatt?.writeCharacteristic(characteristic, value, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    }
+
+    // ユーザー操作によるBLE切断。scan中はscanを止めて即Idleへ、接続済み/接続中は
+    // gatt.disconnect()を発行し、実際の後片付け(g.close()/gatt=null)は
+    // onConnectionStateChangeのSTATE_DISCONNECTED分岐に任せる(既存の切断処理と
+    // 経路を共通化するため、ここでcloseは呼ばない)。
+    fun disconnect() {
+        bluetoothManager?.adapter?.bluetoothLeScanner?.stopScan(scanCallback)
+        val g = gatt
+        if (g != null) {
+            g.disconnect()
+        } else {
+            _connectionState.value = ConnectionState.Idle
+        }
     }
 
     fun close() {
@@ -153,6 +175,7 @@ class BleClient(private val context: Context) {
             ledChar1 = g.getService(BleUuids.IO_SERVICE)?.getCharacteristic(BleUuids.LED1)
             ledChar2 = g.getService(BleUuids.IO_SERVICE)?.getCharacteristic(BleUuids.LED2)
             buzzerChar = g.getService(BleUuids.IO_SERVICE)?.getCharacteristic(BleUuids.BUZZER)
+            bmx055IntervalChar = g.getService(BleUuids.BMX055_SERVICE)?.getCharacteristic(BleUuids.BMX055_INTERVAL)
             notifyIndex = 0
             enableNextNotification(g)
         }

@@ -23,6 +23,7 @@ object BleUuids {
     val ACCEL_CHAR: UUID = UUID.fromString("a0b40141-926d-4d61-98df-8c5c62ee53b3")
     val GYRO_CHAR: UUID = UUID.fromString("a0b40142-926d-4d61-98df-8c5c62ee53b3")
     val MAG_CHAR: UUID = UUID.fromString("a0b40143-926d-4d61-98df-8c5c62ee53b3")
+    val BMX055_INTERVAL: UUID = UUID.fromString("a0b40144-926d-4d61-98df-8c5c62ee53b3")
 
     const val DEVICE_NAME_FILTER = "MultiSenser"
 }
