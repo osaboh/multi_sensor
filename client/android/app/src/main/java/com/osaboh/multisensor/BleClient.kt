@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,11 @@ data class SensorReadings(
     val swSide: Boolean? = null,
 )
 
+// 加速度・ジャイロの直近サンプル履歴（グラフ表示用）。1点は1回のNotify分。
+data class ChartPoint(val timeMs: Long, val x: Float, val y: Float, val z: Float)
+
+private const val HISTORY_MAX_SAMPLES = 30
+
 private val NOTIFY_CHARACTERISTICS: List<Pair<UUID, UUID>> = listOf(
     BleUuids.LPS22HB_SERVICE to BleUuids.LPS22HB_CHAR,
     BleUuids.HDC2010_SERVICE to BleUuids.HDC2010_CHAR,
@@ -62,6 +68,12 @@ class BleClient(private val context: Context) {
 
     private val _writeStatus = MutableStateFlow<String?>(null)
     val writeStatus: StateFlow<String?> = _writeStatus.asStateFlow()
+
+    private val _accelHistory = MutableStateFlow<List<ChartPoint>>(emptyList())
+    val accelHistory: StateFlow<List<ChartPoint>> = _accelHistory.asStateFlow()
+
+    private val _gyroHistory = MutableStateFlow<List<ChartPoint>>(emptyList())
+    val gyroHistory: StateFlow<List<ChartPoint>> = _gyroHistory.asStateFlow()
 
     private val bluetoothManager: BluetoothManager? =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -166,10 +178,16 @@ class BleClient(private val context: Context) {
                     _readings.update { it.copy(hdc2010 = decodeHdc2010(value)) }
                 }
                 BleUuids.ACCEL_CHAR -> if (value.size >= 6) {
-                    _readings.update { it.copy(accel = decodeAccel(value)) }
+                    val reading = decodeAccel(value)
+                    _readings.update { it.copy(accel = reading) }
+                    val point = ChartPoint(SystemClock.elapsedRealtime(), reading.xMg.toFloat(), reading.yMg.toFloat(), reading.zMg.toFloat())
+                    _accelHistory.update { (it + point).takeLast(HISTORY_MAX_SAMPLES) }
                 }
                 BleUuids.GYRO_CHAR -> if (value.size >= 6) {
-                    _readings.update { it.copy(gyro = decodeGyro(value)) }
+                    val reading = decodeGyro(value)
+                    _readings.update { it.copy(gyro = reading) }
+                    val point = ChartPoint(SystemClock.elapsedRealtime(), reading.xDps.toFloat(), reading.yDps.toFloat(), reading.zDps.toFloat())
+                    _gyroHistory.update { (it + point).takeLast(HISTORY_MAX_SAMPLES) }
                 }
                 BleUuids.MAG_CHAR -> if (value.size >= 12) {
                     _readings.update { it.copy(mag = decodeMag(value)) }

@@ -26,6 +26,8 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
     val connectionState by bleClient.connectionState.collectAsState()
     val readings by bleClient.readings.collectAsState()
     val writeStatus by bleClient.writeStatus.collectAsState()
+    val accelHistory by bleClient.accelHistory.collectAsState()
+    val gyroHistory by bleClient.gyroHistory.collectAsState()
     var led1On by remember { mutableStateOf(false) }
     var led2On by remember { mutableStateOf(false) }
     val isConnected = connectionState == ConnectionState.Connected
@@ -56,9 +58,11 @@ fun MultiSensorScreen(bleClient: BleClient, modifier: Modifier = Modifier) {
         Text(text = "加速度: " + (readings.accel?.let {
             "%.1f, %.1f, %.1f mg".format(it.xMg, it.yMg, it.zMg)
         } ?: "-"))
+        SensorLineChart(points = accelHistory, unit = "mg", modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
         Text(text = "ジャイロ: " + (readings.gyro?.let {
             "%.1f, %.1f, %.1f °/s".format(it.xDps, it.yDps, it.zDps)
         } ?: "-"))
+        SensorLineChart(points = gyroHistory, unit = "°/s", modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
         Text(text = "磁力: " + (readings.mag?.let {
             "%.1f, %.1f, %.1f µT".format(it.xUt, it.yUt, it.zUt)
         } ?: "-"))
