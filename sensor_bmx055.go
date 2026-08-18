@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"tinygo.org/x/bluetooth"
@@ -57,14 +59,28 @@ const (
 	bmm050DigZ3LSB = 0x6E
 	bmm050DigXY2   = 0x70
 	bmm050DigXY1   = 0x71
+
+	// Notify interval bounds for the BMX055 loop (accel+gyro+mag share one
+	// goroutine/sleep). Floor keeps headroom above the gyro's 90ms
+	// duty-cycle wake time plus I2C read overhead for all three sensors;
+	// ceiling is an arbitrary sane upper bound.
+	bmx055IntervalMinMs = 150
+	bmx055IntervalMaxMs = 5000
 )
 
 var (
-	bmx055ServiceUUID   = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x40, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
-	bmx055AccelCharUUID = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x41, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
-	bmx055GyroCharUUID  = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x42, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
-	bmx055MagCharUUID   = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x43, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
+	bmx055ServiceUUID    = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x40, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
+	bmx055AccelCharUUID  = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x41, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
+	bmx055GyroCharUUID   = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x42, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
+	bmx055MagCharUUID    = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x43, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
+	bmx055IntervalCharUUID = bluetooth.NewUUID([16]byte{0xa0, 0xb4, 0x01, 0x44, 0x92, 0x6d, 0x4d, 0x61, 0x98, 0xdf, 0x8c, 0x5c, 0x62, 0xee, 0x53, 0xb3})
 )
+
+// bmx055IntervalMs is the accel+gyro+mag loop's sleep interval, in
+// milliseconds. Written from the Interval characteristic's WriteEvent
+// (interrupt context: atomic store only, no allocation), read by the
+// service goroutine every cycle.
+var bmx055IntervalMs uint32 = 1000
 
 func startBMX055Service() {
 	must("bmx055 wake", wakeBMX055())
@@ -93,6 +109,23 @@ func startBMX055Service() {
 				Value:  make([]byte, 12),
 				Flags:  bluetooth.CharacteristicReadPermission | bluetooth.CharacteristicNotifyPermission,
 			},
+			{
+				UUID:  bmx055IntervalCharUUID,
+				Value: []byte{0xE8, 0x03}, // 1000ms LE, matches the default above
+				Flags: bluetooth.CharacteristicWritePermission | bluetooth.CharacteristicWriteWithoutResponsePermission,
+				WriteEvent: func(client bluetooth.Connection, offset int, value []byte) {
+					if offset != 0 || len(value) != 2 {
+						return
+					}
+					ms := binary.LittleEndian.Uint16(value)
+					if ms < bmx055IntervalMinMs {
+						ms = bmx055IntervalMinMs
+					} else if ms > bmx055IntervalMaxMs {
+						ms = bmx055IntervalMaxMs
+					}
+					atomic.StoreUint32(&bmx055IntervalMs, uint32(ms))
+				},
+			},
 		},
 	}))
 
@@ -110,7 +143,7 @@ func startBMX055Service() {
 				b := convert.EncodeMag(x, y, z)
 				magChar.Write(b[:])
 			}
-			time.Sleep(time.Second)
+			time.Sleep(time.Duration(atomic.LoadUint32(&bmx055IntervalMs)) * time.Millisecond)
 		}
 	}()
 }
