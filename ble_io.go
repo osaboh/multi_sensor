@@ -163,9 +163,32 @@ func switchByte(pressed bool) byte {
 	return 0x00
 }
 
+// swSideResetHoldは、SW_SIDEを押し続けた場合にmachine.CPUReset()（BLE含む
+// 全体のソフトウェアリセット）をトリガーするまでの継続押下時間。短時間の
+// 誤操作でリセットしないよう長押しを要求する。
+const swSideResetHold = 2 * time.Second
+
+// pollSwitchesは通常のgoroutineであり、SoftDeviceの割込みハンドラ
+// （WriteEvent/SetConnectHandler、docs/debug-log-bmx055-wake.md参照）とは
+// 異なりヒープ確保禁止の制約を受けない。そのためtime.Now()による長押し
+// 時間の計測はここでは問題なく行える（GPIOTEのハード割込み経由で同様の
+// 判定をする案も検討したが、長押し判定はどのみち時間経過のサンプリングを
+// 要するため、既存のこのポーリングに載せる方がシンプルで確実）。
 func pollSwitches(swTopChar, swSideChar *bluetooth.Characteristic) {
 	lastTop := switchPressed(sw_top)
 	lastSide := switchPressed(sw_side)
+	var sidePressedAt time.Time
+	// resetArmedは「次にSW_SIDEが押された時、長押しでリセットしてよいか」を
+	// 表す。machine.CPUReset()は即座に再起動するため、リセットのきっかけと
+	// なった押下がまだ続いている間にpollSwitchesが再度起動する。もし
+	// falseで初期化していると、離される前に再度swSideResetHold以上経過した
+	// 時点でまたリセットしてしまい、指を離すまで「リセット→起動時ビープ→
+	// リセット」が高頻度で繰り返され、ブザーが連続で鳴り続けて聞き苦しい
+	// （実機で発生を確認）。起動時点で既に押されている場合は一度離される
+	// までarmedにしないことで、1回の長押しにつきリセットは1回だけに制限する
+	// （離してから押し直せば再度リセットできる、一般的な長押しボタンと
+	// 同じ挙動）。
+	resetArmed := !lastSide
 	for {
 		time.Sleep(20 * time.Millisecond)
 		if top := switchPressed(sw_top); top != lastTop {
@@ -175,6 +198,14 @@ func pollSwitches(swTopChar, swSideChar *bluetooth.Characteristic) {
 		if side := switchPressed(sw_side); side != lastSide {
 			lastSide = side
 			swSideChar.Write([]byte{switchByte(side)})
+			if side {
+				sidePressedAt = time.Now()
+			} else {
+				resetArmed = true
+			}
+		}
+		if resetArmed && lastSide && time.Since(sidePressedAt) >= swSideResetHold {
+			machine.CPUReset()
 		}
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"machine"
+	"time"
 
 	"tinygo.org/x/bluetooth"
 )
@@ -84,6 +85,7 @@ func main() {
 
 	startNUSService()
 	startIOService()
+	bootSelfTest()
 	startLPS22HBService()
 	startHDC2010Service()
 	startBMX055Service()
@@ -98,4 +100,22 @@ func must(action string, err error) {
 		logLine(msg)
 		panic(msg)
 	}
+}
+
+// bootSelfTestDurationは起動時LED/ブザーセルフテストの継続時間。
+const bootSelfTestDuration = 50 * time.Millisecond
+
+// bootSelfTestは起動直後に全LEDとブザーを同時に鳴動・点灯させる。
+// SW_SIDE長押しによるmachine.CPUReset()（ble_io.go）が実際に発生したことを
+// 目視・聴覚で確認できるようにするための起動確認処理。initBuzzerPWM()
+// （startIOService()内で呼ばれる）より後に実行する必要がある
+// （buzzerPWM/buzzerChはPWM Configure済みでないと使えない）。
+func bootSelfTest() {
+	setLED(led1, true)
+	setLED(led2, true)
+	buzzerPWM.Set(buzzerCh, buzzerPWM.Top()/2)
+	time.Sleep(bootSelfTestDuration)
+	setLED(led1, false)
+	setLED(led2, false)
+	buzzerPWM.Set(buzzerCh, 0)
 }

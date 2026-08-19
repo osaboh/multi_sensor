@@ -7,6 +7,10 @@
 - [x] ~~切断すると二度と再接続できなくなる~~（2026-08-17発見・同日修正済み）: `main.go`が`SetConnectHandler`の切断イベントで`cancel()`を呼び`main()`をreturnさせ`defer adv.Stop()`を実行していたのが原因。実は`tinygo.org/x/bluetooth`のライブラリ自体が切断時に`sd_ble_gap_adv_start`でadvertisingを自動再開する処理を既に持っており（`adapter_nrf528xx-peripheral.go`/`-full.go`）、アプリ側が余計にそれを止めていただけだった。`cancel()`呼び出しと`context`の使用を削除し、`main()`の末尾を`select{}`で永久ブロックする形に変更。接続→切断を2回連続で行い再接続できることを実機確認済み
 - [x] ~~LED以外の制御・Notifyが効かなくなる（2回目、Bluetooth OFF→ONでも改善せず）~~（2026-08-18発見・2026-08-19修正済み）: ブザー音程チューニング用に追加した専用Characteristic（`buzzerFreqCharUUID`）がSoftDeviceのGATT属性テーブル容量（既定1408バイト、詳細は`docs/gatt-attr-table-size-notes.md`）を使い切り、`panic: failed to add BMX055 service: no memory for operation`で起動時にパニックしていた。advertisingは既に開始済みだったため接続自体はできてしまい、Android側のGATTキャッシュ問題に見える誤診断を招きやすい症状だった（RTTバッファ直読みでpanicログを確認して特定）。恒久対応として専用Characteristicを廃止し、既存のBuzzer Characteristicのペイロードを一時的に拡張（2/4バイト可変長）してチューニングに使い、音程確定後（1000Hz・800ms）は2バイト固定の元の形に戻した。実機で全Notify・LED・ブザーの動作を再確認済み
 
+## ハードウェア操作
+
+- [x] ~~SW_SIDE(P0.12)長押しでBLEを含む全体をソフトウェアリセットする~~（2026-08-19完了）: `ble_io.go`の`pollSwitches()`（20ms間隔の通常goroutine、割込みコンテキストではないため`time.Now()`計測に制約なし）でSW_SIDEの連続押下時間を計測し、2秒(`swSideResetHold`)以上でmachine.CPUReset()を呼ぶ。GPIOTEハード割込み+TIMERペリフェラルによる実装案も検討したが、長押し判定はどのみち時間経過のサンプリングを要するため既存ポーリングへの追加で十分と判断。リセットが実際に発生したことを目視・聴覚で確認できるよう、`main.go`に`bootSelfTest()`を追加し起動直後に全LED点灯+ブザー鳴動を50ms間実行するようにした（`startIOService()`でのPWM初期化後に実行する必要がある、当初1秒→200ms→50msとユーザーフィードバックで短縮。200ms版は`make flash`がJ-Link接続エラー`-102`で実際には書き込めていなかったことが判明し、`make unstick`でjlinkarm_nrf_worker_osxを解消してから再書き込みして確認する一幕があった）。当初、指を離さずに2秒超保持し続けると「リセット→起動時ビープ→リセット」が高頻度で繰り返されブザーが連続して聞き苦しい不具合があったため、`resetArmed`フラグで一度離すまで次のリセット判定を無効化する修正を追加（実機確認済み）。実機で長押し→セルフテスト発火→advertising再開、および連続リセットが起きないことをユーザー確認済み
+
 ## 整理・クリーンアップ
 
 - [x] ~~`i2cscan_debug.go` と `main.go` 内の `scanI2C()` 呼び出しを削除する~~（2026-08-17完了）: `i2cscan_debug.go`を削除し、`main.go`から呼び出しも削除。ビルド・実機でのadvertising動作を確認済み
